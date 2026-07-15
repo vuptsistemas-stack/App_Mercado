@@ -66,3 +66,9 @@ android/key.properties
 android/app/key.properties
 android/app/*.jks
 android/app/*.keystore
+
+
+# Builds gerados / releases
+releases/
+*.apk
+*.aab
