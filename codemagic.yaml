@@ -23,3 +23,40 @@ workflows:
     artifacts:
       - build/ios/iphoneos/**/*.app
       - /tmp/xcodebuild_logs/*.log
+
+  ios-sao-mateus-testflight:
+    name: iOS Sao Mateus - TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: br.com.apppreco.mercado.saomateus
+    scripts:
+      - name: Flutter pub get
+        script: flutter pub get
+      - name: Instalar pods iOS
+        script: |
+          cd ios
+          pod install
+      - name: Configurar assinatura iOS
+        script: xcode-project use-profiles
+      - name: Build iOS release assinado
+        script: |
+          flutter build ipa --release \
+            --dart-define=APP_PACKAGE=br.com.apppreco.mercado.saomateus \
+            --dart-define=MERCADO_ID=464a6ab3-31ed-431b-a43a-e8cd57d7c44e \
+            --dart-define=MERCADO_CODIGO=sao_mateus \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
