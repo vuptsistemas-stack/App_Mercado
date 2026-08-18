@@ -48,6 +48,7 @@ workflows:
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
           keychain add-certificates
+          security find-identity -v -p codesigning
           xcode-project use-profiles
       - name: Build iOS release assinado
         script: |
