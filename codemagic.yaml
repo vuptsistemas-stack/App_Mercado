@@ -31,6 +31,8 @@ workflows:
     integrations:
       app_store_connect: Codemagic
     environment:
+      groups:
+        - ios_signing
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -45,8 +47,12 @@ workflows:
           pod install
       - name: Criar e configurar assinatura iOS
         script: |
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "A variavel CERTIFICATE_PRIVATE_KEY nao foi configurada no grupo ios_signing do Codemagic."
+            exit 1
+          fi
           keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --certificate-key=@env:CERTIFICATE_PRIVATE_KEY --create
           keychain add-certificates
           security find-identity -v -p codesigning
           xcode-project use-profiles
