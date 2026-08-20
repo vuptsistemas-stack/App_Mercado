@@ -37,20 +37,37 @@ class ImagemService {
   static Future<String?> buscarImagemProduto({
     required String ean,
     required String nomeProduto,
+    String imagemUrlCadastroProdutoApp = '',
   }) async {
     final eanLimpo = ean.trim();
     final nomeLimpo = nomeProduto.trim();
+    final imagemCadastroProdutoApp = imagemUrlCadastroProdutoApp.trim();
+    final temImagemCadastroProdutoApp = _urlImagemValida(
+      imagemCadastroProdutoApp,
+    );
+
+    if (_eanInternoLoja(eanLimpo) && temImagemCadastroProdutoApp) {
+      return imagemCadastroProdutoApp;
+    }
 
     if (eanLimpo.isEmpty && nomeLimpo.isEmpty) {
-      return null;
+      return temImagemCadastroProdutoApp ? imagemCadastroProdutoApp : null;
     }
 
     final chaveCache = _montarChaveCache(ean: eanLimpo, nomeProduto: nomeLimpo);
 
+    String? resolverFallbackProdutoApp(String? imagemCentral) {
+      if (imagemCentral != null && imagemCentral.trim().isNotEmpty) {
+        return imagemCentral;
+      }
+
+      return temImagemCadastroProdutoApp ? imagemCadastroProdutoApp : null;
+    }
+
     // 1) Se já buscou nessa abertura do app, retorna direto.
     // Isso inclui null para produto sem imagem.
     if (_cacheMemoria.containsKey(chaveCache)) {
-      return _cacheMemoria[chaveCache];
+      return resolverFallbackProdutoApp(_cacheMemoria[chaveCache]);
     }
 
     // 2) Se já tem imagem local válida, usa por até 7 dias sem chamar function.
@@ -65,14 +82,14 @@ class ImagemService {
     final buscaExistente = _buscasEmAndamento[chaveCache];
 
     if (buscaExistente != null) {
-      return buscaExistente;
+      final resultado = await buscaExistente;
+      return resolverFallbackProdutoApp(resultado);
     }
 
     // 4) Busca apenas conforme o produto aparece na tela, igual hoje.
-    final busca = _buscarImagemProdutoPorRegra(
-      ean: eanLimpo,
-      nomeProduto: nomeLimpo,
-    );
+    final busca = temImagemCadastroProdutoApp
+        ? _buscarImagemProdutoCentral(ean: eanLimpo, nomeProduto: nomeLimpo)
+        : _buscarImagemProdutoPorRegra(ean: eanLimpo, nomeProduto: nomeLimpo);
 
     _buscasEmAndamento[chaveCache] = busca;
 
@@ -91,7 +108,7 @@ class ImagemService {
         await _removerImagemDoCacheLocal(chaveCache);
       }
 
-      return resultado;
+      return resolverFallbackProdutoApp(resultado);
     } finally {
       _buscasEmAndamento.remove(chaveCache);
     }
@@ -248,6 +265,12 @@ class ImagemService {
 
   static String _apenasNumeros(String valor) {
     return valor.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  static bool _urlImagemValida(String valor) {
+    final texto = valor.trim();
+
+    return texto.startsWith('http://') || texto.startsWith('https://');
   }
 
   static String _chaveUrl(String chaveCache) {

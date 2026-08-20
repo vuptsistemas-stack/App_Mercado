@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyC8g_HGykeGI5oVo780F01lEdSr2jqztE0</string>
+	<key>GCM_SENDER_ID</key>
+	<string>491158654376</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>br.com.apppreco.mercado.saomateus</string>
+	<key>PROJECT_ID</key>
+	<string>aplicativo-admin-e5b92</string>
+	<key>STORAGE_BUCKET</key>
+	<string>aplicativo-admin-e5b92.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:491158654376:ios:55e75e4bdfc49a67c6219d</string>
+</dict>
+</plist>

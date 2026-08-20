@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,12 +9,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_mercado_config.dart' as app_config;
 import 'controllers/carrinho_controller.dart';
 import 'pages/auth_gate.dart';
+import 'services/push_notification_service.dart';
 import 'services/sessao_mercado_cliente.dart' as sessao;
 
 void main() {
-  runZonedGuarded(
-    () {
+  runZonedGuarded<Future<void>>(
+    () async {
       WidgetsFlutterBinding.ensureInitialized();
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       FlutterError.onError = (FlutterErrorDetails details) {
         FlutterError.presentError(details);
@@ -21,8 +24,38 @@ void main() {
         debugPrint(details.stack.toString());
       };
 
-      debugPrint('APP_MERCADO: main iniciou');
-      runApp(const AppMercadoInicial());
+      debugPrint('APP_MERCADO: inicialização começou no splash nativo');
+
+      try {
+        final resultado = await inicializarMercadoCliente();
+
+        if (resultado.sucesso) {
+          debugPrint(
+            'APP_MERCADO: inicialização concluída; liberando primeira tela',
+          );
+
+          runApp(const AppMercado());
+          return;
+        }
+
+        debugPrint('APP_MERCADO ERRO INICIALIZAÇÃO: ${resultado.detalhe}');
+
+        runApp(AppMercadoErroInicializacao(resultado: resultado));
+      } catch (e, stack) {
+        debugPrint('APP_MERCADO EXCEPTION NO STARTUP: $e');
+        debugPrint(stack.toString());
+
+        runApp(
+          AppMercadoErroInicializacao(
+            resultado: ResultadoInicializacaoMercado.erro(
+              titulo: 'Erro ao iniciar loja',
+              mensagem:
+                  'Não foi possível concluir a conexão inicial do aplicativo.',
+              detalhe: e.toString(),
+            ),
+          ),
+        );
+      }
     },
     (error, stack) {
       debugPrint('ERRO ZONA APP_MERCADO: $error');
@@ -31,265 +64,171 @@ void main() {
   );
 }
 
-class AppMercadoInicial extends StatelessWidget {
-  const AppMercadoInicial({super.key});
+class AppMercadoErroInicializacao extends StatefulWidget {
+  final ResultadoInicializacaoMercado resultado;
 
-  static const Color vermelho = Color(0xFFE30613);
-
-  @override
-  Widget build(BuildContext context) {
-    debugPrint('APP_MERCADO: AppMercadoInicial build');
-
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'App Mercado',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: vermelho,
-        ),
-        useMaterial3: true,
-      ),
-      home: const InicializarMercadoPage(),
-      onGenerateRoute: (settings) {
-        return MaterialPageRoute(
-          builder: (_) => const InicializarMercadoPage(),
-          settings: settings,
-        );
-      },
-      onUnknownRoute: (settings) {
-        return MaterialPageRoute(
-          builder: (_) => const InicializarMercadoPage(),
-          settings: settings,
-        );
-      },
-    );
-  }
-}
-
-class InicializarMercadoPage extends StatefulWidget {
-  const InicializarMercadoPage({super.key});
+  const AppMercadoErroInicializacao({super.key, required this.resultado});
 
   @override
-  State<InicializarMercadoPage> createState() => _InicializarMercadoPageState();
+  State<AppMercadoErroInicializacao> createState() =>
+      _AppMercadoErroInicializacaoState();
 }
 
-class _InicializarMercadoPageState extends State<InicializarMercadoPage> {
-  static const Color vermelho = Color(0xFFE30613);
-
-  bool carregando = true;
-  String titulo = 'Iniciando loja';
-  String mensagem = 'Abrindo aplicativo...';
-  String detalheErro = '';
+class _AppMercadoErroInicializacaoState
+    extends State<AppMercadoErroInicializacao> {
+  bool tentandoNovamente = false;
+  late ResultadoInicializacaoMercado resultado;
 
   @override
   void initState() {
     super.initState();
-
-    debugPrint('APP_MERCADO: InicializarMercadoPage initState');
-
-    // IMPORTANTE:
-    // Não iniciar Hive/Central/Supabase em microtask antes do primeiro frame.
-    // Primeiro deixamos a tela "Iniciando loja" aparecer.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      debugPrint('APP_MERCADO: primeiro frame renderizado');
-      if (!mounted) return;
-      iniciar();
-    });
+    resultado = widget.resultado;
   }
 
-  Future<void> iniciar() async {
-    if (!mounted) return;
-
-    debugPrint('APP_MERCADO: iniciar()');
+  Future<void> tentarNovamente() async {
+    if (tentandoNovamente) {
+      return;
+    }
 
     setState(() {
-      carregando = true;
-      titulo = 'Iniciando loja';
-      mensagem = 'Preparando aplicativo...';
-      detalheErro = '';
+      tentandoNovamente = true;
     });
 
-    // Pequena pausa para garantir que a tela inicial seja desenhada
-    // antes de iniciar chamadas mais pesadas.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-
     try {
-      final resultado = await inicializarMercadoCliente(
-        onStatus: (texto) {
-          debugPrint('APP_MERCADO STATUS: $texto');
+      final novoResultado = await inicializarMercadoCliente();
 
-          if (!mounted) return;
-
-          setState(() {
-            mensagem = texto;
-          });
-        },
-      );
-
-      if (!mounted) return;
-
-      if (!resultado.sucesso) {
-        debugPrint('APP_MERCADO ERRO INICIALIZACAO: ${resultado.detalhe}');
-
-        setState(() {
-          carregando = false;
-          titulo = resultado.titulo;
-          mensagem = resultado.mensagem;
-          detalheErro = resultado.detalhe;
-        });
+      if (novoResultado.sucesso) {
+        runApp(const AppMercado());
         return;
       }
 
-      debugPrint('APP_MERCADO: inicialização concluída, abrindo app');
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const AppMercado(),
-        ),
-      );
-    } catch (e, stack) {
-      debugPrint('APP_MERCADO EXCEPTION iniciar(): $e');
-      debugPrint(stack.toString());
-
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
-        carregando = false;
-        titulo = 'Erro ao iniciar loja';
-        mensagem =
-            'Não foi possível concluir a conexão inicial com a base Central.';
-        detalheErro = e.toString();
+        resultado = novoResultado;
+        tentandoNovamente = false;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        resultado = ResultadoInicializacaoMercado.erro(
+          titulo: 'Erro ao iniciar loja',
+          mensagem:
+              'Não foi possível concluir a conexão inicial do aplicativo.',
+          detalhe: e.toString(),
+        );
+        tentandoNovamente = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final mercadoCodigo = app_config.AppMercadoConfig.mercadoCodigo;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(26),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: vermelho.withOpacity(0.10),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.storefront,
-                      color: vermelho,
-                      size: 42,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    titulo,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFF111827),
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    mensagem,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 14,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      'Loja: ${mercadoCodigo.isEmpty ? 'não informada' : mercadoCodigo}',
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(28),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (tentandoNovamente)
+                      const SizedBox(
+                        width: 38,
+                        height: 38,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: Color(0xFFE30613),
+                        ),
+                      )
+                    else
+                      const Icon(
+                        Icons.cloud_off_rounded,
+                        color: Color(0xFFE30613),
+                        size: 52,
+                      ),
+                    const SizedBox(height: 18),
+                    Text(
+                      tentandoNovamente
+                          ? 'Tentando conectar novamente'
+                          : resultado.titulo,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: Colors.black54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ),
-                  if (carregando) ...[
-                    const SizedBox(height: 22),
-                    const CircularProgressIndicator(
-                      color: vermelho,
+                    const SizedBox(height: 9),
+                    Text(
+                      tentandoNovamente
+                          ? 'Aguarde enquanto reconectamos à loja.'
+                          : resultado.mensagem,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 14.5,
+                        height: 1.4,
+                      ),
                     ),
-                  ] else ...[
-                    if (detalheErro.trim().isNotEmpty) ...[
-                      const SizedBox(height: 14),
+                    if (!tentandoNovamente &&
+                        resultado.detalhe.trim().isNotEmpty) ...[
+                      const SizedBox(height: 16),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(12),
+                        constraints: const BoxConstraints(maxHeight: 130),
+                        padding: const EdgeInsets.all(13),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.red.withOpacity(0.18),
-                          ),
+                          color: const Color(0xFFFFF1F2),
+                          borderRadius: BorderRadius.circular(15),
                         ),
-                        child: SelectableText(
-                          detalheErro,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 12,
-                            height: 1.25,
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            resultado.detalhe,
+                            style: const TextStyle(
+                              color: Color(0xFFB91C1C),
+                              fontSize: 11.5,
+                              height: 1.3,
+                            ),
                           ),
                         ),
                       ),
                     ],
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: iniciar,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Tentar novamente'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: vermelho,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                    if (!tentandoNovamente) ...[
+                      const SizedBox(height: 22),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          onPressed: tentarNovamente,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text(
+                            'Tentar novamente',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE30613),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(17),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -303,8 +242,7 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
   void Function(String texto)? onStatus,
 }) async {
   try {
-    final mercadoCodigo =
-        app_config.AppMercadoConfig.mercadoCodigoObrigatorio;
+    final mercadoCodigo = app_config.AppMercadoConfig.mercadoCodigoObrigatorio;
     final mercadoId = app_config.AppMercadoConfig.mercadoIdObrigatorio;
 
     debugPrint('APP_MERCADO: mercadoId=$mercadoId');
@@ -312,20 +250,17 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
 
     onStatus?.call('Preparando carrinho local...');
 
-    await Hive.initFlutter().timeout(
-      const Duration(seconds: 10),
-    );
+    await Hive.initFlutter().timeout(const Duration(seconds: 10));
 
     debugPrint('APP_MERCADO: Hive.initFlutter OK');
 
-    await Hive.openBox('carrinho').timeout(
-      const Duration(seconds: 10),
-    );
+    await Hive.openBox('carrinho').timeout(const Duration(seconds: 10));
 
     debugPrint('APP_MERCADO: Hive.openBox carrinho OK');
 
-    if (app_config.AppMercadoConfig.centralSupabaseAnonKey
-        .contains('COLOQUE_A_ANON')) {
+    if (app_config.AppMercadoConfig.centralSupabaseAnonKey.contains(
+      'COLOQUE_A_ANON',
+    )) {
       return const ResultadoInicializacaoMercado.erro(
         titulo: 'Configuração pendente',
         mensagem:
@@ -349,14 +284,9 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
     final resposta = await central.functions
         .invoke(
           'buscar-conexao-mercado-cliente',
-          body: {
-            'mercado_id': mercadoId,
-            'mercado_codigo': mercadoCodigo,
-          },
+          body: {'mercado_id': mercadoId, 'mercado_codigo': mercadoCodigo},
         )
-        .timeout(
-          const Duration(seconds: 20),
-        );
+        .timeout(const Duration(seconds: 20));
 
     debugPrint('APP_MERCADO: Central respondeu');
 
@@ -377,9 +307,7 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
     debugPrint(
       'APP_MERCADO: Loja carregada: ${sessao.SessaoMercadoCliente.mercadoNome}',
     );
-    debugPrint(
-      'APP_MERCADO: API: ${sessao.SessaoMercadoCliente.apiBaseUrl}',
-    );
+    debugPrint('APP_MERCADO: API: ${sessao.SessaoMercadoCliente.apiBaseUrl}');
 
     if (!sessao.SessaoMercadoCliente.ativo) {
       return const ResultadoInicializacaoMercado.erro(
@@ -406,9 +334,7 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
     await Supabase.initialize(
       url: sessao.SessaoMercadoCliente.supabaseUrl,
       anonKey: sessao.SessaoMercadoCliente.supabaseAnonKey,
-    ).timeout(
-      const Duration(seconds: 20),
-    );
+    ).timeout(const Duration(seconds: 20));
 
     debugPrint('APP_MERCADO: Supabase loja inicializado');
 
@@ -436,9 +362,7 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
 
 Map<String, dynamic> normalizarRespostaCentral(dynamic data) {
   if (data == null) {
-    return {
-      'erro': 'Resposta vazia da Central',
-    };
+    return {'erro': 'Resposta vazia da Central'};
   }
 
   if (data is Map<String, dynamic>) {
@@ -467,9 +391,7 @@ Map<String, dynamic> normalizarRespostaCentral(dynamic data) {
     return convertido;
   }
 
-  return {
-    'erro': 'Formato inválido retornado pela Central',
-  };
+  return {'erro': 'Formato inválido retornado pela Central'};
 }
 
 class ResultadoInicializacaoMercado {
@@ -486,23 +408,18 @@ class ResultadoInicializacaoMercado {
   });
 
   const ResultadoInicializacaoMercado.sucesso()
-      : this._(
-          sucesso: true,
-          titulo: '',
-          mensagem: '',
-          detalhe: '',
-        );
+    : this._(sucesso: true, titulo: '', mensagem: '', detalhe: '');
 
   const ResultadoInicializacaoMercado.erro({
     required String titulo,
     required String mensagem,
     required String detalhe,
   }) : this._(
-          sucesso: false,
-          titulo: titulo,
-          mensagem: mensagem,
-          detalhe: detalhe,
-        );
+         sucesso: false,
+         titulo: titulo,
+         mensagem: mensagem,
+         detalhe: detalhe,
+       );
 }
 
 Color _corHex(String valor, Color padrao) {
@@ -547,10 +464,16 @@ class AppMercado extends StatelessWidget {
         title: nomeApp,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
-            seedColor: _corHex(sessao.SessaoMercadoCliente.clienteCorPrimaria, const Color(0xFFE30613)),
+            seedColor: _corHex(
+              sessao.SessaoMercadoCliente.clienteCorPrimaria,
+              const Color(0xFFE30613),
+            ),
           ),
           useMaterial3: true,
         ),
+        builder: (context, child) {
+          return ZoomPinchGlobal(child: child ?? const SizedBox.shrink());
+        },
         home: const AuthGate(),
         onGenerateRoute: (settings) {
           return MaterialPageRoute(
@@ -565,6 +488,100 @@ class AppMercado extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class ZoomPinchGlobal extends StatefulWidget {
+  final Widget child;
+
+  const ZoomPinchGlobal({super.key, required this.child});
+
+  @override
+  State<ZoomPinchGlobal> createState() => _ZoomPinchGlobalState();
+}
+
+class _ZoomPinchGlobalState extends State<ZoomPinchGlobal> {
+  final TransformationController controller = TransformationController();
+
+  bool ampliado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(atualizarEstadoZoom);
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(atualizarEstadoZoom);
+    controller.dispose();
+    super.dispose();
+  }
+
+  void atualizarEstadoZoom() {
+    final escala = controller.value.getMaxScaleOnAxis();
+    final novoAmpliado = escala > 1.01;
+
+    if (novoAmpliado == ampliado || !mounted) {
+      return;
+    }
+
+    setState(() {
+      ampliado = novoAmpliado;
+    });
+  }
+
+  void resetarZoom() {
+    controller.value = Matrix4.identity();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      ampliado = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top + 10;
+
+    return Stack(
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onDoubleTap: resetarZoom,
+          child: InteractiveViewer(
+            transformationController: controller,
+            minScale: 1,
+            maxScale: 2.6,
+            panEnabled: ampliado,
+            scaleEnabled: true,
+            clipBehavior: Clip.hardEdge,
+            boundaryMargin: const EdgeInsets.all(220),
+            child: widget.child,
+          ),
+        ),
+        if (ampliado)
+          Positioned(
+            top: top,
+            right: 12,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.62),
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                onTap: resetarZoom,
+                borderRadius: BorderRadius.circular(18),
+                child: const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: Icon(Icons.zoom_in_map, color: Colors.white, size: 22),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -8,6 +8,7 @@ class Produto {
   final bool pesoVariavel;
   final double pesoMedioKg;
   final String produtoAppId;
+  final String categoria;
 
   /// Campo opcional para quando a API já retornar uma imagem.
   /// No fluxo atual, as imagens continuam vindo pelo ImagemService/Central.
@@ -23,6 +24,7 @@ class Produto {
     this.pesoVariavel = false,
     this.pesoMedioKg = 0,
     this.produtoAppId = '',
+    this.categoria = '',
     this.imagemUrl = '',
   });
 
@@ -88,6 +90,12 @@ class Produto {
             json['produtoAppId'] ??
             json['produtos_app_id'] ??
             json['id_produto_app'],
+      ),
+      categoria: _texto(
+        json['categoria'] ??
+            json['nome_grupo'] ??
+            json['grupo'] ??
+            json['categoria_nome'],
       ),
       imagemUrl: _texto(
         json['imagem_url'] ??
@@ -209,6 +217,7 @@ class Produto {
       'peso_variavel': pesoVariavel,
       'peso_medio_kg': pesoMedioKg,
       'produto_app_id': produtoAppId,
+      'categoria': categoria,
       'imagem_url': imagemUrl,
     };
   }
@@ -223,6 +232,7 @@ class Produto {
     bool? pesoVariavel,
     double? pesoMedioKg,
     String? produtoAppId,
+    String? categoria,
     String? imagemUrl,
   }) {
     return Produto(
@@ -235,6 +245,7 @@ class Produto {
       pesoVariavel: pesoVariavel ?? this.pesoVariavel,
       pesoMedioKg: pesoMedioKg ?? this.pesoMedioKg,
       produtoAppId: produtoAppId ?? this.produtoAppId,
+      categoria: categoria ?? this.categoria,
       imagemUrl: imagemUrl ?? this.imagemUrl,
     );
   }

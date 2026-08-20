@@ -164,12 +164,17 @@ class OfertasService {
     final tipoOferta = _tipoOferta(oferta);
 
     final produtoApi = await _buscarProdutoOfertaNaApi(oferta);
-    Produto? produtoFinal;
-    final produtoEncontradoNaApi = produtoApi != null;
+
+    if (produtoApi == null && _ofertaTemReferenciaProduto(oferta)) {
+      return null;
+    }
+
+    late final Produto produtoFinal;
 
     if (origemFinal == 'API') {
       final precoReferencia = _numero(oferta['preco_api_referencia']);
-      produtoFinal = produtoApi ?? _produtoBasicoOferta(oferta, precoReferencia);
+      produtoFinal =
+          produtoApi ?? _produtoBasicoOferta(oferta, precoReferencia);
     } else {
       final precoApp = _numero(oferta['preco_app']);
 
@@ -181,12 +186,15 @@ class OfertasService {
       produtoFinal = produtoComPreco(base, precoApp);
     }
 
-    if (produtoFinal == null || produtoFinal.nome.trim().isEmpty) {
+    if (produtoFinal.nome.trim().isEmpty) {
       return null;
     }
 
-    if (produtoEncontradoNaApi &&
-        !await ApiService.deveExibirProdutoNoApp(produtoFinal)) {
+    if (!_produtoCompativelComOferta(produtoFinal, oferta)) {
+      return null;
+    }
+
+    if (!await ApiService.deveExibirProdutoNoApp(produtoFinal)) {
       return null;
     }
 
@@ -206,24 +214,45 @@ class OfertasService {
   ) async {
     final ean = _texto(oferta['ean']);
     final nome = _texto(oferta['nome_produto']);
+    final produtoId = _texto(oferta['produto_id']);
 
-    if (ean.isNotEmpty) {
-      final produtos = await ApiService.buscarProdutos(ean);
+    return ApiService.buscarProdutoExatoParaOferta(
+      ean: ean,
+      produtoId: produtoId,
+      nome: nome,
+    );
+  }
 
-      if (produtos.isNotEmpty) {
-        return produtos.first;
-      }
+  static bool _ofertaTemReferenciaProduto(Map<String, dynamic> oferta) {
+    return _texto(oferta['ean']).isNotEmpty ||
+        _texto(oferta['produto_id']).isNotEmpty ||
+        _texto(oferta['nome_produto']).isNotEmpty;
+  }
+
+  static bool _produtoCompativelComOferta(
+    Produto produto,
+    Map<String, dynamic> oferta,
+  ) {
+    final eanOfertaNormalizado = _normalizarCodigo(_texto(oferta['ean']));
+    final produtoIdOfertaNormalizado = _normalizarCodigo(
+      _texto(oferta['produto_id']),
+    );
+
+    final eanProdutoNormalizado = _normalizarCodigo(produto.ean);
+    final produtoIdNormalizado = _normalizarCodigo(
+      produto.produtoId.toString(),
+    );
+
+    if (eanOfertaNormalizado.isNotEmpty) {
+      return eanProdutoNormalizado == eanOfertaNormalizado;
     }
 
-    if (nome.isNotEmpty) {
-      final produtos = await ApiService.buscarProdutos(nome);
-
-      if (produtos.isNotEmpty) {
-        return produtos.first;
-      }
+    if (produtoIdOfertaNormalizado.isNotEmpty) {
+      return produtoIdNormalizado == produtoIdOfertaNormalizado;
     }
 
-    return null;
+    return _normalizarNome(_texto(oferta['nome_produto'])) ==
+        _normalizarNome(produto.nome);
   }
 
   static Produto _produtoBasicoOferta(
@@ -303,6 +332,16 @@ class OfertasService {
 
   static String _texto(dynamic valor) {
     return valor?.toString().trim() ?? '';
+  }
+
+  static String _normalizarCodigo(String valor) {
+    return valor
+        .replaceAll(RegExp(r'[^0-9]'), '')
+        .replaceFirst(RegExp(r'^0+'), '');
+  }
+
+  static String _normalizarNome(String valor) {
+    return valor.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 
   static double _numero(dynamic valor) {

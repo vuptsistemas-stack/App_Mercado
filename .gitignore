@@ -54,6 +54,7 @@ key.properties
 *.pem
 *.p12
 *.mobileprovision
+codemagic_ios_distribution_key*
 
 # Supabase / chaves sensíveis
 *service_role*

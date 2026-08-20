@@ -19,10 +19,10 @@ class CarrinhoPage extends StatefulWidget {
   const CarrinhoPage({super.key, this.onFinalizarPedido, this.onVoltarInicio});
 
   @override
-  State<CarrinhoPage> createState() => _CarrinhoPageState();
+  State<CarrinhoPage> createState() => CarrinhoPageState();
 }
 
-class _CarrinhoPageState extends State<CarrinhoPage> {
+class CarrinhoPageState extends State<CarrinhoPage> {
   bool atualizouAoAbrir = false;
 
   @override
@@ -626,6 +626,14 @@ class _CarrinhoPageState extends State<CarrinhoPage> {
     );
   }
 
+  Future<void> iniciarFinalizacao() async {
+    if (!mounted) {
+      return;
+    }
+
+    await abrirFinalizarPedido(context);
+  }
+
   Future<bool> mostrarAvisoPesoVariavel(
     BuildContext context,
     List<dynamic> itensPesoVariavel,
@@ -1083,6 +1091,9 @@ class _CarrinhoPageState extends State<CarrinhoPage> {
       future: ImagemService.buscarImagemProduto(
         ean: produto.ean,
         nomeProduto: produto.nome,
+        imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
+            ? produto.imagemUrl
+            : '',
       ),
       builder: (context, snapshot) {
         final imagemUrl = snapshot.data;

@@ -9,13 +9,17 @@ import 'onboarding_page.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import 'main_navigation_page.dart';
 import 'completar_cadastro_page.dart';
+import 'redefinir_senha_page.dart';
 import '../services/app_tema_service.dart';
+import '../services/loja_funcionamento_service.dart';
 
 enum _DestinoAuth {
   carregando,
   onboarding,
   login,
   completarCadastro,
+  redefinirSenha,
+  bloqueado,
   app,
   erro,
 }
@@ -32,10 +36,12 @@ class _AuthGateState extends State<AuthGate> {
 
   _DestinoAuth destino = _DestinoAuth.carregando;
   String? mensagemErro;
+  String? mensagemBloqueio;
   static const String chaveOnboardingVisto = 'app_mercado_onboarding_visto_v1';
 
   bool verificando = false;
   bool onboardingExibidoNestaSessao = false;
+  bool recuperacaoSenhaAtiva = false;
 
   @override
   void initState() {
@@ -47,6 +53,26 @@ class _AuthGateState extends State<AuthGate> {
       debugPrint(
         'APP_MERCADO AUTH: ${event.event.name} | session=${event.session != null}',
       );
+
+      if (event.event == AuthChangeEvent.passwordRecovery) {
+        recuperacaoSenhaAtiva = true;
+
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          destino = _DestinoAuth.redefinirSenha;
+          mensagemErro = null;
+        });
+        return;
+      }
+
+      // Durante a recuperação, não deixa eventos como signedIn/initialSession
+      // enviarem o usuário para o app antes de definir a nova senha.
+      if (recuperacaoSenhaAtiva) {
+        return;
+      }
 
       // Evita ficar reconstruindo a tela infinitamente durante refresh de token.
       if (event.event == AuthChangeEvent.tokenRefreshed) {
@@ -119,7 +145,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> verificarSessao() async {
-    if (verificando) {
+    if (recuperacaoSenhaAtiva || verificando) {
       return;
     }
 
@@ -142,6 +168,8 @@ class _AuthGateState extends State<AuthGate> {
       );
 
       if (session == null || user == null) {
+        LojaFuncionamentoService.limparCategoriasBloqueadasCliente();
+
         if (!mounted) return;
 
         final mostrarOnboarding = await deveExibirOnboarding();
@@ -156,7 +184,9 @@ class _AuthGateState extends State<AuthGate> {
 
       final response = await client
           .from('clientes')
-          .select('id, telefone, endereco, numero, bairro, cidade')
+          .select(
+            'id, telefone, endereco, numero, bairro, cidade, bloqueado, bloqueio_motivo, categorias_bloqueadas',
+          )
           .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
           .eq('user_id', user.id)
           .maybeSingle()
@@ -174,8 +204,27 @@ class _AuthGateState extends State<AuthGate> {
       if (!mounted) return;
 
       if (response == null) {
+        LojaFuncionamentoService.limparCategoriasBloqueadasCliente();
         setState(() {
           destino = _DestinoAuth.completarCadastro;
+        });
+        return;
+      }
+
+      final clienteBloqueado =
+          response['bloqueado'] == true ||
+          response['bloqueado']?.toString().toLowerCase() == 'true';
+
+      LojaFuncionamentoService.configurarCategoriasBloqueadasCliente(
+        response['categorias_bloqueadas'],
+      );
+
+      if (clienteBloqueado) {
+        final motivo = response['bloqueio_motivo']?.toString().trim() ?? '';
+
+        setState(() {
+          destino = _DestinoAuth.bloqueado;
+          mensagemBloqueio = motivo;
         });
         return;
       }
@@ -296,7 +345,29 @@ class _AuthGateState extends State<AuthGate> {
     });
   }
 
+  Future<void> concluirRedefinicaoSenha() async {
+    recuperacaoSenhaAtiva = false;
+    LojaFuncionamentoService.limparCategoriasBloqueadasCliente();
+
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (e) {
+      debugPrint('APP_MERCADO RESET PASSWORD SIGNOUT: $e');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      destino = _DestinoAuth.login;
+      mensagemErro = null;
+    });
+  }
+
   Future<void> sairELimparSessao() async {
+    LojaFuncionamentoService.limparCategoriasBloqueadasCliente();
+
     try {
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}
@@ -432,6 +503,107 @@ class _AuthGateState extends State<AuthGate> {
     );
   }
 
+  Widget telaClienteBloqueado() {
+    final motivo = mensagemBloqueio?.trim() ?? '';
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F8FA),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 420),
+              padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: AppTemaService.primaria.withValues(alpha: 0.18),
+                  width: 1.6,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTemaService.primaria.withValues(alpha: 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 82,
+                    height: 82,
+                    decoration: BoxDecoration(
+                      color: AppTemaService.primaria.withValues(alpha: 0.10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.block_rounded,
+                      color: AppTemaService.primaria,
+                      size: 42,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Compras temporariamente bloqueadas',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF1F2937),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    motivo.isEmpty
+                        ? 'Entre em contato com a loja para consultar a situação do seu cadastro.'
+                        : motivo,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton.icon(
+                      onPressed: sairELimparSessao,
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text(
+                        'Sair da conta',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTemaService.primaria,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     switch (destino) {
@@ -443,6 +615,12 @@ class _AuthGateState extends State<AuthGate> {
 
       case _DestinoAuth.completarCadastro:
         return const CompletarCadastroPage();
+
+      case _DestinoAuth.redefinirSenha:
+        return RedefinirSenhaPage(onConcluido: concluirRedefinicaoSenha);
+
+      case _DestinoAuth.bloqueado:
+        return telaClienteBloqueado();
 
       case _DestinoAuth.app:
         return const MainNavigationPage();

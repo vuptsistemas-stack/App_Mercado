@@ -558,15 +558,22 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
   }
 
   Future<String?> buscarImagemProdutoComCache(Produto produto) {
-    final chave = produto.ean.trim().isNotEmpty
+    final imagemProdutoApp = produto.produtoAppId.trim().isNotEmpty
+        ? produto.imagemUrl.trim()
+        : '';
+    final chaveBase = produto.ean.trim().isNotEmpty
         ? produto.ean.trim()
         : produto.nome.trim().toUpperCase();
+    final chave = imagemProdutoApp.isEmpty
+        ? chaveBase
+        : '$chaveBase|app:${produto.produtoAppId.trim()}|img:$imagemProdutoApp';
 
     return _cacheImagemProduto.putIfAbsent(
       chave,
       () => ImagemService.buscarImagemProduto(
         ean: produto.ean,
         nomeProduto: produto.nome,
+        imagemUrlCadastroProdutoApp: imagemProdutoApp,
       ),
     );
   }
@@ -753,8 +760,9 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
 
   Future<void> tentarAdicionarProduto(
     CarrinhoController carrinho,
-    Produto produto,
-  ) async {
+    Produto produto, {
+    int incremento = 1,
+  }) async {
     await LojaFuncionamentoService.aplicarConfiguracoesNoCarrinho(context);
 
     if (!mounted) {
@@ -762,7 +770,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
     }
 
     if (carrinho.bloquearVendaSemEstoque &&
-        !carrinho.podeAdicionarProduto(produto)) {
+        !carrinho.podeAdicionarQuantidade(produto, incremento)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Produto sem estoque disponível'),
@@ -779,7 +787,33 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
       return;
     }
 
-    carrinho.adicionarProduto(produto);
+    final quantidadeAnterior = carrinho.quantidadeProduto(produto);
+    final adicionado = carrinho.adicionarQuantidade(produto, incremento);
+
+    if (adicionado && quantidadeAnterior == 0 && mounted) {
+      final retirarItem =
+          await LojaFuncionamentoService.alertarEstoqueBaixoAoAdicionar(
+            context,
+            estoqueAtual: produto.estoque,
+            unidade: produto.unidadeNormalizada,
+          );
+
+      if (retirarItem && mounted) {
+        carrinho.removerProduto(produto);
+      }
+    }
+  }
+
+  Future<void> adicionarOuAbrirProduto(
+    CarrinhoController carrinho,
+    Produto produto,
+  ) async {
+    if (produto.ehKg && !produto.pesoVariavel) {
+      mostrarZoomProduto(produto);
+      return;
+    }
+
+    await tentarAdicionarProduto(carrinho, produto);
   }
 
   Widget botaoAcaoProduto({
@@ -807,6 +841,32 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
           icon,
           color: desabilitado ? Colors.white : iconColor,
           size: iconSize,
+        ),
+      ),
+    );
+  }
+
+  Widget botaoAdicionarUmQuilo({required VoidCallback? onTap}) {
+    final desabilitado = onTap == null;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: desabilitado ? Colors.grey.shade300 : corPrimaria,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: const Text(
+          '+1kg',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       ),
     );
@@ -858,7 +918,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                   botaoAcaoProduto(
                     icon: Icons.add,
                     onTap: () {
-                      tentarAdicionarProduto(carrinho, produto);
+                      adicionarOuAbrirProduto(carrinho, produto);
                     },
                     size: 27,
                     iconSize: 20,
@@ -1140,22 +1200,40 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                                   ),
                                   const SizedBox(width: 6),
                                 ],
-                                produtoSemEstoque(produto)
-                                    ? avisoSemEstoque()
-                                    : botaoAcaoProduto(
-                                        icon: Icons.add,
-                                        onTap: () async {
-                                          await tentarAdicionarProduto(
-                                            carrinhoDialog,
-                                            produto,
-                                          );
-                                          if (mounted) {
-                                            setStateZoom(() {});
-                                          }
-                                        },
-                                        size: 32,
-                                        iconSize: 22,
-                                      ),
+                                if (produtoSemEstoque(produto))
+                                  avisoSemEstoque()
+                                else ...[
+                                  botaoAcaoProduto(
+                                    icon: Icons.add,
+                                    onTap: () async {
+                                      await tentarAdicionarProduto(
+                                        carrinhoDialog,
+                                        produto,
+                                      );
+                                      if (mounted) {
+                                        setStateZoom(() {});
+                                      }
+                                    },
+                                    size: 32,
+                                    iconSize: 22,
+                                  ),
+                                  if (produto.ehKg &&
+                                      !produto.pesoVariavel) ...[
+                                    const SizedBox(width: 6),
+                                    botaoAdicionarUmQuilo(
+                                      onTap: () async {
+                                        await tentarAdicionarProduto(
+                                          carrinhoDialog,
+                                          produto,
+                                          incremento: 10,
+                                        );
+                                        if (mounted) {
+                                          setStateZoom(() {});
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ],
                                 const SizedBox(width: 8),
                                 botaoAcaoProduto(
                                   icon: Icons.shopping_cart,

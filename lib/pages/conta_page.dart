@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'login_page.dart';
+import '../controllers/carrinho_controller.dart';
 import '../services/app_tema_service.dart';
+import '../services/excluir_conta_service.dart';
+import '../services/lista_compras_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 
 class ContaPage extends StatefulWidget {
@@ -35,6 +38,7 @@ class _ContaPageState extends State<ContaPage> {
   bool carregando = true;
   bool salvando = false;
   bool editando = false;
+  bool excluindoConta = false;
 
   final List<Map<String, String>> estados = const [
     {'uf': 'AC', 'nome': 'Acre'},
@@ -277,14 +281,317 @@ class _ContaPageState extends State<ContaPage> {
   }
 
   Future<void> sair() async {
-    await Supabase.instance.client.auth.signOut();
+    if (excluindoConta) {
+      return;
+    }
 
-    if (!mounted) return;
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (e) {
+      if (!mounted) return;
 
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível sair: $e')),
+      );
+    }
+
+    // Não fazemos Navigator.push aqui. O AuthGate escuta o evento
+    // de logout e troca a tela principal pelo LoginPage.
+  }
+
+  Future<void> solicitarExclusaoConta() async {
+    if (excluindoConta || salvando) {
+      return;
+    }
+
+    final desejaContinuar = await _confirmarAvisoExclusao();
+
+    if (!desejaContinuar || !mounted) {
+      return;
+    }
+
+    final confirmouTexto = await _confirmarTextoExclusao();
+
+    if (!confirmouTexto || !mounted) {
+      return;
+    }
+
+    setState(() {
+      excluindoConta = true;
+    });
+
+    try {
+      final resultado = await ExcluirContaService.excluirConta(
+        mercadoId: sessao.SessaoMercadoCliente.mercadoIdObrigatorio,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      try {
+        context.read<CarrinhoController>().limparCarrinho();
+      } catch (_) {
+        // O provider pode não estar disponível em testes isolados da página.
+      }
+
+      await ListaComprasService.limparTudo();
+
+      if (!mounted) {
+        return;
+      }
+
+      await _mostrarExclusaoConcluida(resultado);
+
+      // O Future do showDialog termina assim que a rota recebe pop,
+      // antes de a animação de fechamento desaparecer por completo.
+      // Aguardar evita desmontar a árvore enquanto o Overlay ainda fecha.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      try {
+        await Supabase.instance.client.auth.signOut();
+      } catch (e) {
+        debugPrint(
+          'Conta excluída, mas ocorreu erro ao limpar a sessão local: $e',
+        );
+      }
+
+      // Não navegue manualmente para LoginPage. O AuthGate já escuta
+      // o evento signedOut e substitui MainNavigationPage pelo login.
+      return;
+    } on ExcluirContaException catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      await _mostrarErroExclusao(
+        e.mensagem,
+        pedidoEmAndamento: e.codigo == 'PEDIDO_EM_ANDAMENTO',
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      await _mostrarErroExclusao(
+        'Não foi possível excluir a conta: $e',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          excluindoConta = false;
+        });
+      }
+    }
+  }
+
+  Future<bool> _confirmarAvisoExclusao() async {
+    final nomeMercado = sessao.SessaoMercadoCliente.mercadoNome.trim();
+    final mercadoTexto = nomeMercado.isEmpty ? 'este mercado' : nomeMercado;
+
+    final resultado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          icon: const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFD32F2F),
+            size: 48,
+          ),
+          title: const Text(
+            'Excluir minha conta?',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Esta ação excluirá permanentemente seus dados pessoais vinculados ao $mercadoTexto.',
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const _AvisoExclusaoItem(
+                  icon: Icons.person_remove_outlined,
+                  texto:
+                      'Seu cadastro, telefone, endereço e demais dados pessoais serão removidos.',
+                ),
+                const _AvisoExclusaoItem(
+                  icon: Icons.receipt_long_outlined,
+                  texto:
+                      'Pedidos entregues continuarão no histórico financeiro apenas de forma anônima, como “Cliente excluído”.',
+                ),
+                const _AvisoExclusaoItem(
+                  icon: Icons.local_shipping_outlined,
+                  texto:
+                      'A exclusão será bloqueada enquanto existir pedido novo, em preparação ou em rota de entrega.',
+                ),
+                const _AvisoExclusaoItem(
+                  icon: Icons.storefront_outlined,
+                  texto:
+                      'Contas e dados que você possuir em outros mercados não serão afetados.',
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3F3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFD32F2F).withOpacity(0.20),
+                    ),
+                  ),
+                  child: const Text(
+                    'Esta ação não poderá ser desfeita.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFB71C1C),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFD32F2F),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Continuar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return resultado ?? false;
+  }
+
+  Future<bool> _confirmarTextoExclusao() async {
+    final resultado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) => const _ConfirmarExclusaoDialog(),
+    );
+
+    return resultado ?? false;
+  }
+
+  Future<void> _mostrarExclusaoConcluida(
+    ResultadoExclusaoConta resultado,
+  ) async {
+    var mensagem = resultado.mensagem;
+
+    if (resultado.possuiOutrosMercados) {
+      mensagem =
+          '$mensagem\n\nSeu login foi mantido porque você ainda possui cadastro em outro mercado.';
+    }
+
+    if (resultado.possuiVinculoFuncionario) {
+      mensagem =
+          '$mensagem\n\nSeu login também foi mantido porque existe um vínculo de funcionário ou administrador.';
+    }
+
+    if (resultado.aviso != null) {
+      mensagem = '$mensagem\n\n${resultado.aviso}';
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          icon: const Icon(
+            Icons.check_circle_outline,
+            color: Color(0xFF0F9D58),
+            size: 52,
+          ),
+          title: const Text(
+            'Conta excluída',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: Text(
+            mensagem,
+            textAlign: TextAlign.center,
+            style: const TextStyle(height: 1.45),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Concluir'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _mostrarErroExclusao(
+    String mensagem, {
+    bool pedidoEmAndamento = false,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          icon: Icon(
+            pedidoEmAndamento
+                ? Icons.local_shipping_outlined
+                : Icons.error_outline,
+            color: pedidoEmAndamento
+                ? const Color(0xFFE65100)
+                : const Color(0xFFD32F2F),
+            size: 48,
+          ),
+          title: Text(
+            pedidoEmAndamento
+                ? 'Pedido em andamento'
+                : 'Não foi possível excluir',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: Text(
+            mensagem,
+            textAlign: TextAlign.center,
+            style: const TextStyle(height: 1.45),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Entendi'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -618,10 +925,92 @@ class _ContaPageState extends State<ContaPage> {
                 borderRadius: BorderRadius.circular(15),
               ),
             ),
-            onPressed: sair,
+            onPressed: excluindoConta ? null : sair,
           ),
         ),
+        privacidadeSeguranca(),
       ],
+    );
+  }
+
+  Widget privacidadeSeguranca() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAFA),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: const Color(0xFFD32F2F).withOpacity(0.22),
+          width: 1.4,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                color: Color(0xFFD32F2F),
+                size: 21,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Privacidade e segurança',
+                  style: TextStyle(
+                    color: Color(0xFF6F1D1D),
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Você pode excluir permanentemente sua conta e seus dados pessoais deste mercado. O histórico financeiro de pedidos entregues será mantido sem identificação do cliente.',
+            style: TextStyle(
+              color: Color(0xFF6B4A4A),
+              fontSize: 12.3,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 11),
+          SizedBox(
+            width: double.infinity,
+            height: 43,
+            child: OutlinedButton.icon(
+              onPressed: excluindoConta ? null : solicitarExclusaoConta,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFD32F2F),
+                side: const BorderSide(color: Color(0xFFD32F2F)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              icon: excluindoConta
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFD32F2F),
+                      ),
+                    )
+                  : const Icon(Icons.delete_forever_outlined, size: 19),
+              label: Text(
+                excluindoConta
+                    ? 'Excluindo conta...'
+                    : 'Excluir minha conta neste mercado',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -786,6 +1175,188 @@ class _ContaPageState extends State<ContaPage> {
     );
 
     return scaffold;
+  }
+}
+
+class _ConfirmarExclusaoDialog extends StatefulWidget {
+  const _ConfirmarExclusaoDialog();
+
+  @override
+  State<_ConfirmarExclusaoDialog> createState() =>
+      _ConfirmarExclusaoDialogState();
+}
+
+class _ConfirmarExclusaoDialogState
+    extends State<_ConfirmarExclusaoDialog> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  bool _habilitado = false;
+  bool _fechando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _atualizar(String valor) {
+    final novoEstado = valor.trim().toUpperCase() == 'EXCLUIR';
+
+    if (novoEstado == _habilitado || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _habilitado = novoEstado;
+    });
+  }
+
+  void _fechar(bool confirmou) {
+    if (_fechando) {
+      return;
+    }
+
+    setState(() {
+      _fechando = true;
+    });
+
+    _focusNode.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    Navigator.of(context, rootNavigator: true).pop(confirmou);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        title: const Text(
+          'Confirmação final',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Para confirmar a exclusão permanente, digite EXCLUIR no campo abaixo.',
+              textAlign: TextAlign.center,
+              style: TextStyle(height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              autofocus: true,
+              enabled: !_fechando,
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z]')),
+                LengthLimitingTextInputFormatter(7),
+              ],
+              onChanged: _atualizar,
+              onSubmitted: (_) {
+                if (_habilitado && !_fechando) {
+                  _fechar(true);
+                }
+              },
+              decoration: InputDecoration(
+                hintText: 'EXCLUIR',
+                prefixIcon: const Icon(Icons.delete_forever_outlined),
+                filled: true,
+                fillColor: const Color(0xFFFFFAFA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFD32F2F),
+                    width: 1.6,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: _fechando ? null : () => _fechar(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: _habilitado && !_fechando
+                ? () => _fechar(true)
+                : null,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFD32F2F),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.delete_forever_outlined),
+            label: const Text('Excluir conta'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AvisoExclusaoItem extends StatelessWidget {
+  final IconData icon;
+  final String texto;
+
+  const _AvisoExclusaoItem({
+    required this.icon,
+    required this.texto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD32F2F).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: const Color(0xFFD32F2F),
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: const TextStyle(
+                color: Color(0xFF4B5563),
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

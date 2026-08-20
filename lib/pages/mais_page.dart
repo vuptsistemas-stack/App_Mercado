@@ -43,6 +43,32 @@ class MaisPage extends StatelessWidget {
     return fallback;
   }
 
+  List<String> meiosPagamentoLoja() {
+    final valor = lojaConfiguracoes['meios_pagamento'];
+    Iterable<dynamic> itens = const [];
+
+    if (valor is List) {
+      itens = valor;
+    } else if (valor is String && valor.trim().isNotEmpty) {
+      itens = valor.split(',');
+    }
+
+    final nomes = <String>[];
+    final chaves = <String>{};
+
+    for (final item in itens) {
+      final nome = item.toString().trim();
+      final chave = nome.toLowerCase();
+
+      if (nome.isEmpty || chaves.contains(chave)) continue;
+
+      nomes.add(nome);
+      chaves.add(chave);
+    }
+
+    return nomes.isEmpty ? ['Pix', 'Dinheiro', 'Cartão na entrega'] : nomes;
+  }
+
   String nomeLoja() {
     return primeiroTexto([
       lojaConfiguracoes['nome_loja'],
@@ -67,6 +93,55 @@ class MaisPage extends StatelessWidget {
       dadosLoja['telefone'],
       dadosLoja['celular'],
     ]);
+  }
+
+  String instagramLoja() {
+    return primeiroTexto([
+      lojaConfiguracoes['instagram'],
+      lojaConfiguracoes['instagram_url'],
+      dadosLoja['instagram'],
+      dadosLoja['instagram_url'],
+    ]);
+  }
+
+  String facebookLoja() {
+    return primeiroTexto([
+      lojaConfiguracoes['facebook'],
+      lojaConfiguracoes['facebook_url'],
+      dadosLoja['facebook'],
+      dadosLoja['facebook_url'],
+    ]);
+  }
+
+  bool urlHttpValida(String valor) {
+    final uri = Uri.tryParse(valor.trim());
+    return uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty;
+  }
+
+  Future<void> abrirUrlExterna(
+    BuildContext context, {
+    required String url,
+    required String nome,
+  }) async {
+    if (!urlHttpValida(url)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$nome da loja não informado.')));
+      return;
+    }
+
+    final abriu = await launchUrl(
+      Uri.parse(url.trim()),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!abriu && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Não foi possível abrir $nome.')));
+    }
   }
 
   String emailLoja() {
@@ -505,6 +580,27 @@ class MaisPage extends StatelessWidget {
           iconeWhatsapp: true,
           onTap: () => abrirWhatsApp(context),
         ),
+        if (instagramLoja().trim().isNotEmpty)
+          itemMenu(
+            icone: Icons.camera_alt_outlined,
+            titulo: 'Instagram',
+            descricao: 'Perfil da loja',
+            cor: const Color(0xFFE1306C),
+            onTap: () => abrirUrlExterna(
+              context,
+              url: instagramLoja(),
+              nome: 'Instagram',
+            ),
+          ),
+        if (facebookLoja().trim().isNotEmpty)
+          itemMenu(
+            icone: Icons.facebook,
+            titulo: 'Facebook',
+            descricao: 'Perfil da loja',
+            cor: const Color(0xFF1877F2),
+            onTap: () =>
+                abrirUrlExterna(context, url: facebookLoja(), nome: 'Facebook'),
+          ),
         itemMenu(
           icone: Icons.storefront_outlined,
           titulo: 'Sobre a loja',
@@ -588,6 +684,9 @@ class MaisPage extends StatelessWidget {
         titulo: 'Canais de atendimento',
         paragrafos: [
           'WhatsApp: ${telefoneFormatado()}',
+          if (instagramLoja().trim().isNotEmpty)
+            'Instagram: ${instagramLoja()}',
+          if (facebookLoja().trim().isNotEmpty) 'Facebook: ${facebookLoja()}',
           'E-mail: ${emailLoja()}',
           'Use o atendimento para dúvidas sobre pedidos, prazos, produtos, valores, retirada ou entrega.',
         ],
@@ -623,16 +722,18 @@ class MaisPage extends StatelessWidget {
   }
 
   List<MaisSecaoConteudo> secoesPagamento() {
-    return const [
+    final formasAceitas = meiosPagamentoLoja().join(', ');
+
+    return [
       MaisSecaoConteudo(
         titulo: 'Como o pagamento funciona',
         paragrafos: [
           'Os pagamentos são realizados sempre na entrega ou na retirada do pedido.',
           'O aplicativo registra o pedido e informa a forma escolhida, mas não realiza cobrança online.',
-          'A loja poderá confirmar as formas aceitas, como dinheiro, cartão, PIX ou outras opções disponíveis no momento do atendimento.',
+          'Formas aceitas pela loja: $formasAceitas.',
         ],
       ),
-      MaisSecaoConteudo(
+      const MaisSecaoConteudo(
         titulo: 'Valores do pedido',
         paragrafos: [
           'O total apresentado considera os produtos do carrinho, descontos aplicados e eventual taxa de entrega.',
@@ -832,7 +933,7 @@ class MaisPage extends StatelessWidget {
               itemMenu(
                 icone: Icons.payments_outlined,
                 titulo: 'Pagamentos',
-                descricao: 'Pagamento sempre na entrega ou retirada.',
+                descricao: meiosPagamentoLoja().join(', '),
                 onTap: () => abrirDetalhe(
                   context,
                   titulo: 'Pagamentos',

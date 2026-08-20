@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
+import '../services/push_notification_service.dart';
 
 String nomeMercado() {
   final nome = sessao.SessaoMercadoCliente.mercadoNome.trim();
@@ -23,6 +24,33 @@ String whatsappMercadoSomenteNumeros() {
   return whatsappMercadoPedido().replaceAll(RegExp(r'[^0-9]'), '');
 }
 
+String normalizarStatusPedidoCliente(dynamic valor) {
+  return valor
+          ?.toString()
+          .trim()
+          .toLowerCase()
+          .replaceAll('-', '_')
+          .replaceAll(RegExp(r'\s+'), '_') ??
+      '';
+}
+
+bool statusPedidoPermiteCancelamentoCliente(dynamic valor) {
+  final status = normalizarStatusPedidoCliente(valor);
+
+  return status.isEmpty ||
+      status == 'novo' ||
+      status == 'recebido' ||
+      status == 'pedido_recebido' ||
+      status == 'aceito' ||
+      status == 'pedido_aceito' ||
+      status == 'preparando' ||
+      status == 'preparacao' ||
+      status == 'em_preparacao' ||
+      status == 'separando' ||
+      status == 'separacao' ||
+      status == 'em_separacao';
+}
+
 class PedidosPage extends StatefulWidget {
   final VoidCallback? onVoltarInicio;
 
@@ -35,11 +63,133 @@ class PedidosPage extends StatefulWidget {
 class _PedidosPageState extends State<PedidosPage> {
   bool carregando = true;
   List<Map<String, dynamic>> pedidos = [];
+  RealtimeChannel? canalStatusPedidos;
+  final Map<String, String> statusConhecidoPorPedido = {};
+  String pedidoCancelandoId = '';
 
   @override
   void initState() {
     super.initState();
+    iniciarAvisosStatusPedido();
     carregarPedidos();
+  }
+
+  @override
+  void dispose() {
+    final canal = canalStatusPedidos;
+
+    if (canal != null) {
+      Supabase.instance.client.removeChannel(canal);
+    }
+
+    super.dispose();
+  }
+
+  void iniciarAvisosStatusPedido() {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    if (user == null || canalStatusPedidos != null) {
+      return;
+    }
+
+    final mercadoId = sessao.SessaoMercadoCliente.mercadoIdObrigatorio;
+
+    canalStatusPedidos = Supabase.instance.client
+        .channel('pedidos-status-${user.id}-$mercadoId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'pedidos',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            final novoPedido = Map<String, dynamic>.from(payload.newRecord);
+            processarMudancaStatusPedido(novoPedido);
+          },
+        )
+        .subscribe();
+  }
+
+  void registrarStatusConhecidos(List<Map<String, dynamic>> lista) {
+    for (final pedido in lista) {
+      final id = pedido['id']?.toString() ?? '';
+
+      if (id.isEmpty) {
+        continue;
+      }
+
+      statusConhecidoPorPedido[id] = pedido['status']?.toString() ?? 'novo';
+    }
+  }
+
+  void processarMudancaStatusPedido(Map<String, dynamic> pedidoAtualizado) {
+    if (!mounted) {
+      return;
+    }
+
+    final mercadoId = pedidoAtualizado['mercado_id']?.toString() ?? '';
+
+    if (mercadoId != sessao.SessaoMercadoCliente.mercadoIdObrigatorio) {
+      return;
+    }
+
+    final id = pedidoAtualizado['id']?.toString() ?? '';
+
+    if (id.isEmpty) {
+      return;
+    }
+
+    final novoStatus = pedidoAtualizado['status']?.toString() ?? 'novo';
+    final statusAnterior = statusConhecidoPorPedido[id];
+
+    statusConhecidoPorPedido[id] = novoStatus;
+
+    setState(() {
+      final indice = pedidos.indexWhere(
+        (pedido) => pedido['id']?.toString() == id,
+      );
+
+      if (indice >= 0) {
+        pedidos[indice] = {...pedidos[indice], ...pedidoAtualizado};
+      }
+    });
+
+    if (statusAnterior == null || statusAnterior == novoStatus) {
+      return;
+    }
+
+    mostrarAvisoStatusPedido(pedidoAtualizado, novoStatus);
+  }
+
+  void mostrarAvisoStatusPedido(
+    Map<String, dynamic> pedido,
+    String novoStatus,
+  ) {
+    final numero = pedido['numero_pedido']?.toString() ?? '-';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Seu pedido #$numero mudou para: ${textoStatus(novoStatus)}',
+        ),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Ver',
+          textColor: Colors.white,
+          onPressed: () {
+            final pedidoDaLista = pedidos.firstWhere(
+              (item) => item['id']?.toString() == pedido['id']?.toString(),
+              orElse: () => pedido,
+            );
+
+            abrirDetalhes(pedidoDaLista);
+          },
+        ),
+      ),
+    );
   }
 
   bool erroSessaoExpirada(Object erro) {
@@ -109,6 +259,8 @@ class _PedidosPageState extends State<PedidosPage> {
         pedido['total_original_itens'] = totalOriginalItens;
       }
 
+      registrarStatusConhecidos(lista);
+
       if (!mounted) return;
 
       setState(() {
@@ -149,9 +301,8 @@ class _PedidosPageState extends State<PedidosPage> {
 
   Map<String, dynamic>? get pedidoAtual {
     final emAndamento = pedidos.where((pedido) {
-      final status = pedido['status']?.toString() ?? 'novo';
-      return status == 'novo' ||
-          status == 'preparando' ||
+      final status = normalizarStatusPedidoCliente(pedido['status']);
+      return statusPedidoPermiteCancelamentoCliente(status) ||
           status == 'saiu_para_entrega';
     }).toList();
 
@@ -266,6 +417,8 @@ class _PedidosPageState extends State<PedidosPage> {
     switch (status.toLowerCase()) {
       case 'novo':
         return AppTemaService.primaria;
+      case 'aceito':
+        return Colors.green;
       case 'preparando':
         return Colors.orange;
       case 'saiu_para_entrega':
@@ -283,6 +436,8 @@ class _PedidosPageState extends State<PedidosPage> {
     switch (status.toLowerCase()) {
       case 'novo':
         return Icons.shopping_bag_outlined;
+      case 'aceito':
+        return Icons.verified_outlined;
       case 'preparando':
         return Icons.restaurant_menu;
       case 'saiu_para_entrega':
@@ -299,7 +454,9 @@ class _PedidosPageState extends State<PedidosPage> {
   String textoStatus(String status) {
     switch (status.toLowerCase()) {
       case 'novo':
-        return 'Pedido recebido';
+        return 'Aguardando aceite';
+      case 'aceito':
+        return 'Pedido aceito';
       case 'preparando':
         return 'Em preparação';
       case 'saiu_para_entrega':
@@ -322,6 +479,151 @@ class _PedidosPageState extends State<PedidosPage> {
     carregarPedidos();
   }
 
+  bool podeCancelarPedido(Map<String, dynamic> pedido) {
+    return statusPedidoPermiteCancelamentoCliente(pedido['status']);
+  }
+
+  Future<void> confirmarCancelamentoPedidoLista(
+    Map<String, dynamic> pedido,
+  ) async {
+    if (pedidoCancelandoId.isNotEmpty || !podeCancelarPedido(pedido)) {
+      return;
+    }
+
+    final numero = pedido['numero_pedido']?.toString() ?? '-';
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancelar pedido?'),
+          content: Text(
+            'Deseja cancelar o pedido #$numero? A loja sera avisada automaticamente.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Voltar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cancelar pedido'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmar == true) {
+      await cancelarPedidoLista(pedido);
+    }
+  }
+
+  Future<void> cancelarPedidoLista(Map<String, dynamic> pedido) async {
+    final pedidoId = pedido['id']?.toString().trim() ?? '';
+    final mercadoId = sessao.SessaoMercadoCliente.mercadoIdObrigatorio;
+
+    if (pedidoId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido sem identificacao.')),
+      );
+      return;
+    }
+
+    setState(() {
+      pedidoCancelandoId = pedidoId;
+    });
+
+    try {
+      await Supabase.instance.client.rpc(
+        'cancelar_pedido_cliente_app',
+        params: {'p_pedido_id': pedidoId, 'p_mercado_id': mercadoId},
+      );
+
+      await PushNotificationService.instance.notificarEventoPedido(
+        evento: 'PEDIDO_CANCELADO',
+        pedidoId: pedidoId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        for (final item in pedidos) {
+          if (item['id']?.toString() == pedidoId) {
+            item['status'] = 'cancelado';
+            item['cancelado_por'] = 'cliente';
+            item['cancelado_em'] = DateTime.now().toIso8601String();
+          }
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido cancelado com sucesso.')),
+      );
+
+      await carregarPedidos();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      final erro = e.toString().toLowerCase();
+      final mensagem = erro.contains('cancelar_pedido_cliente_app')
+          ? 'A funcao de cancelamento ainda nao foi instalada no banco da loja.'
+          : erro.contains('pedido nao pode mais ser cancelado') ||
+                erro.contains('pedido nÃ£o pode mais ser cancelado')
+          ? 'Este pedido nao pode mais ser cancelado pelo app.'
+          : 'Nao foi possivel cancelar o pedido. Tente novamente.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mensagem), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          pedidoCancelandoId = '';
+        });
+      }
+    }
+  }
+
+  Widget botaoCancelarPedidoLista(Map<String, dynamic> pedido) {
+    if (!podeCancelarPedido(pedido)) {
+      return const SizedBox.shrink();
+    }
+
+    final pedidoId = pedido['id']?.toString() ?? '';
+    final cancelando = pedidoCancelandoId == pedidoId;
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: cancelando
+            ? null
+            : () => confirmarCancelamentoPedidoLista(pedido),
+        icon: cancelando
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.cancel_outlined, size: 18),
+        label: Text(cancelando ? 'Cancelando...' : 'Cancelar pedido'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red,
+          side: BorderSide(color: Colors.red.withValues(alpha: 0.45)),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget pedidoAtualCard() {
     final pedido = pedidoAtual;
 
@@ -338,76 +640,86 @@ class _PedidosPageState extends State<PedidosPage> {
         color: AppTemaService.primaria.withOpacity(0.08),
         borderRadius: BorderRadius.circular(18),
       ),
-      child: Row(
+      child: Column(
         children: [
-          CircleAvatar(
-            radius: 34,
-            backgroundColor: AppTemaService.primaria.withOpacity(0.15),
-            child: Icon(
-              iconeStatus(status),
-              color: AppTemaService.primaria,
-              size: 34,
-            ),
-          ),
-          SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Pedido atual',
-                  style: TextStyle(
-                    color: AppTemaService.primaria,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 34,
+                backgroundColor: AppTemaService.primaria.withOpacity(0.15),
+                child: Icon(
+                  iconeStatus(status),
+                  color: AppTemaService.primaria,
+                  size: 34,
                 ),
-                SizedBox(height: 6),
-                Text(
-                  textoStatus(status),
-                  style: TextStyle(fontSize: 15, color: Colors.black87),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Pedido #${pedido['numero_pedido'] ?? '-'}',
-                  style: TextStyle(color: Colors.black54, fontSize: 13),
-                ),
-                if (pedidoReajustado(pedido)) ...[
-                  SizedBox(height: 7),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: Colors.amber.withOpacity(0.35)),
-                    ),
-                    child: const Text(
-                      'Total reajustado',
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pedido atual',
                       style: TextStyle(
-                        color: Color(0xFF92400E),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
+                        color: AppTemaService.primaria,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
                     ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => abrirDetalhes(pedido),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTemaService.primaria,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                    SizedBox(height: 6),
+                    Text(
+                      textoStatus(status),
+                      style: TextStyle(fontSize: 15, color: Colors.black87),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Pedido #${pedido['numero_pedido'] ?? '-'}',
+                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    if (pedidoReajustado(pedido)) ...[
+                      SizedBox(height: 7),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.amber.withOpacity(0.35),
+                          ),
+                        ),
+                        child: const Text(
+                          'Total reajustado',
+                          style: TextStyle(
+                            color: Color(0xFF92400E),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ),
-            child: Text('Ver pedido'),
+              ElevatedButton(
+                onPressed: () => abrirDetalhes(pedido),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTemaService.primaria,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text('Ver pedido'),
+              ),
+            ],
           ),
+          if (podeCancelarPedido(pedido)) ...[
+            const SizedBox(height: 12),
+            botaoCancelarPedidoLista(pedido),
+          ],
         ],
       ),
     );
@@ -442,160 +754,171 @@ class _PedidosPageState extends State<PedidosPage> {
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: corStatus(status).withOpacity(0.14),
-              child: Icon(
-                iconeStatus(status),
-                color: corStatus(status),
-                size: 29,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pedido #$numero',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: corStatus(status).withOpacity(0.14),
+                  child: Icon(
+                    iconeStatus(status),
+                    color: corStatus(status),
+                    size: 29,
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    formatarData(pedido['criado_em']),
-                    style: const TextStyle(color: Colors.black54, fontSize: 13),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    pedido['cliente_nome']?.toString().isNotEmpty == true
-                        ? pedido['cliente_nome'].toString()
-                        : nomeMercado(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 6,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: corStatus(status).withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          textoStatus(status),
-                          style: TextStyle(
-                            color: corStatus(status),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
+                      Text(
+                        'Pedido #$numero',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (reajustado)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: Colors.amber.withOpacity(0.30),
-                            ),
-                          ),
-                          child: const Text(
-                            'Reajustado',
-                            style: TextStyle(
-                              color: Color(0xFF92400E),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                      const SizedBox(height: 5),
+                      Text(
+                        formatarData(pedido['criado_em']),
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 13,
                         ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        pedido['cliente_nome']?.toString().isNotEmpty == true
+                            ? pedido['cliente_nome'].toString()
+                            : nomeMercado(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 7,
+                        runSpacing: 6,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: corStatus(status).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              textoStatus(status),
+                              style: TextStyle(
+                                color: corStatus(status),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          if (reajustado)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.amber.withOpacity(0.30),
+                                ),
+                              ),
+                              child: const Text(
+                                'Reajustado',
+                                style: TextStyle(
+                                  color: Color(0xFF92400E),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 104),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (mostrarTotalAnterior) ...[
-                    Text(
-                      formatarMoeda(totalAnterior),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.black45,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.lineThrough,
-                        decorationThickness: 2,
+                ),
+                const SizedBox(width: 10),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 104),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (mostrarTotalAnterior) ...[
+                        Text(
+                          formatarMoeda(totalAnterior),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.black45,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.lineThrough,
+                            decorationThickness: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                      ],
+                      Text(
+                        formatarMoeda(pedido['total']),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: reajustado
+                              ? const Color(0xFF166534)
+                              : AppTemaService.primaria,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                  ],
-                  Text(
-                    formatarMoeda(pedido['total']),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: reajustado
-                          ? const Color(0xFF166534)
-                          : AppTemaService.primaria,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (reajustado) ...[
-                    const SizedBox(height: 3),
-                    const Text(
-                      'Total atualizado',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Color(0xFF92400E),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
+                      if (reajustado) ...[
+                        const SizedBox(height: 3),
+                        const Text(
+                          'Total atualizado',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Color(0xFF92400E),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 7),
+                      Text(
+                        '$qtdItens itens',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 7),
-                  Text(
-                    '$qtdItens itens',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: Colors.black54),
+              ],
             ),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, color: Colors.black54),
+            if (podeCancelarPedido(pedido)) ...[
+              const SizedBox(height: 12),
+              botaoCancelarPedidoLista(pedido),
+            ],
           ],
         ),
       ),
@@ -703,6 +1026,7 @@ class PedidoDetalhePage extends StatefulWidget {
 
 class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
   bool carregando = true;
+  bool cancelandoPedido = false;
   List<Map<String, dynamic>> itens = [];
 
   @override
@@ -851,6 +1175,125 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
     final texto = valor?.toString().trim().toLowerCase() ?? '';
 
     return texto == 'true' || texto == '1' || texto == 'sim';
+  }
+
+  String statusPedidoAtual() {
+    final status = widget.pedido['status']?.toString().trim().toLowerCase();
+
+    return status == null || status.isEmpty ? 'novo' : status;
+  }
+
+  bool podeCancelarPedido() {
+    return statusPedidoPermiteCancelamentoCliente(statusPedidoAtual());
+  }
+
+  bool pedidoCancelado() {
+    return statusPedidoAtual() == 'cancelado';
+  }
+
+  Future<void> confirmarCancelamentoPedido() async {
+    if (cancelandoPedido || !podeCancelarPedido()) {
+      return;
+    }
+
+    final numero = widget.pedido['numero_pedido']?.toString() ?? '-';
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancelar pedido?'),
+          content: Text(
+            'Deseja cancelar o pedido #$numero? A loja será avisada automaticamente.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Voltar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cancelar pedido'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmar == true) {
+      await cancelarPedido();
+    }
+  }
+
+  Future<void> cancelarPedido() async {
+    final pedidoId = widget.pedido['id']?.toString().trim() ?? '';
+    final mercadoId = sessao.SessaoMercadoCliente.mercadoIdObrigatorio;
+
+    if (pedidoId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido sem identificação.')),
+      );
+      return;
+    }
+
+    setState(() {
+      cancelandoPedido = true;
+    });
+
+    try {
+      await Supabase.instance.client.rpc(
+        'cancelar_pedido_cliente_app',
+        params: {'p_pedido_id': pedidoId, 'p_mercado_id': mercadoId},
+      );
+
+      await PushNotificationService.instance.notificarEventoPedido(
+        evento: 'PEDIDO_CANCELADO',
+        pedidoId: pedidoId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        widget.pedido['status'] = 'cancelado';
+        widget.pedido['cancelado_por'] = 'cliente';
+        widget.pedido['cancelado_em'] = DateTime.now().toIso8601String();
+      });
+
+      await carregarItens();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido cancelado com sucesso.')),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      final erro = e.toString().toLowerCase();
+      final mensagem = erro.contains('cancelar_pedido_cliente_app')
+          ? 'A função de cancelamento ainda não foi instalada no banco da loja.'
+          : erro.contains('pedido nao pode mais ser cancelado') ||
+                erro.contains('pedido não pode mais ser cancelado')
+          ? 'Este pedido não pode mais ser cancelado pelo app.'
+          : 'Não foi possível cancelar o pedido. Tente novamente.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mensagem), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          cancelandoPedido = false;
+        });
+      }
+    }
   }
 
   String formatarPesoKg(dynamic valor) {
@@ -1074,9 +1517,21 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
   }
 
   bool statusAtivo(String passo) {
-    final status = widget.pedido['status']?.toString() ?? 'novo';
+    final status =
+        widget.pedido['status']?.toString().trim().toLowerCase() ?? 'novo';
+
+    if (status == 'cancelado') {
+      return passo == 'novo';
+    }
 
     if (passo == 'novo') return true;
+
+    if (passo == 'aceito') {
+      return status == 'aceito' ||
+          status == 'preparando' ||
+          status == 'saiu_para_entrega' ||
+          status == 'entregue';
+    }
 
     if (passo == 'preparando') {
       return status == 'preparando' ||
@@ -1334,6 +1789,104 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget cardPedidoCanceladoCliente() {
+    if (!pedidoCancelado()) {
+      return const SizedBox.shrink();
+    }
+
+    final canceladoPor = widget.pedido['cancelado_por']?.toString() ?? '';
+    final textoOrigem = canceladoPor == 'cliente'
+        ? 'Cancelado por você.'
+        : 'Pedido cancelado.';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.red.withOpacity(0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+              color: Colors.red,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.cancel_outlined,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pedido cancelado',
+                  style: TextStyle(
+                    color: Color(0xFF991B1B),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$textoOrigem A loja já recebeu a atualização.',
+                  style: const TextStyle(
+                    color: Color(0xFF7F1D1D),
+                    fontSize: 12.5,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget botaoCancelarPedido() {
+    if (!podeCancelarPedido()) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 14),
+      child: OutlinedButton.icon(
+        onPressed: cancelandoPedido ? null : confirmarCancelamentoPedido,
+        icon: cancelandoPedido
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.cancel_outlined),
+        label: Text(
+          cancelandoPedido ? 'Cancelando pedido...' : 'Cancelar pedido',
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red,
+          side: BorderSide(color: Colors.red.withOpacity(0.45)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
       ),
     );
   }
@@ -1618,6 +2171,8 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
                       cardContatoWhatsApp(),
                       cardCodigoEntregaCliente(),
                       cardAvisoReajustePedido(),
+                      cardPedidoCanceladoCliente(),
+                      botaoCancelarPedido(),
                     ],
                   ),
                 ),
@@ -1629,8 +2184,13 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
                 SizedBox(height: 22),
                 passoPedido(
                   passo: 'novo',
-                  titulo: 'Pedido recebido',
-                  descricao: 'Recebemos seu pedido com sucesso!',
+                  titulo: 'Aguardando aceite',
+                  descricao: 'A loja recebeu seu pedido e fará a confirmação.',
+                ),
+                passoPedido(
+                  passo: 'aceito',
+                  titulo: 'Pedido aceito',
+                  descricao: 'A loja confirmou que vai atender seu pedido.',
                 ),
                 passoPedido(
                   passo: 'preparando',

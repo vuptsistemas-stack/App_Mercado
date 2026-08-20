@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../controllers/carrinho_controller.dart';
 import '../services/app_tema_service.dart';
 import '../services/lista_compras_service.dart';
+import '../services/loja_funcionamento_service.dart';
+import '../services/monitor_status_pedidos_cliente_service.dart';
 
 import 'home_page.dart';
 import 'categorias_page.dart';
@@ -25,16 +27,43 @@ class MainNavigationPage extends StatefulWidget {
 }
 
 class _MainNavigationPageState extends State<MainNavigationPage> {
+  final GlobalKey<CarrinhoPageState> carrinhoPageKey =
+      GlobalKey<CarrinhoPageState>();
+
   late int indexSelecionado;
   String? categoriaSelecionada;
 
   bool exibindoFinalizarPedido = false;
   bool exibindoConta = false;
+  bool exibirBotaoFinalizarCompra = false;
 
   @override
   void initState() {
     super.initState();
     indexSelecionado = widget.indexInicial;
+    MonitorStatusPedidosClienteService.instance.iniciar();
+    carregarConfiguracaoBotaoFinalizarCompra();
+  }
+
+  Future<void> carregarConfiguracaoBotaoFinalizarCompra() async {
+    final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes(
+      forcarAtualizacao: true,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      exibirBotaoFinalizarCompra =
+          configuracoes.exibirBotaoFinalizarCompra;
+    });
+  }
+
+  @override
+  void dispose() {
+    MonitorStatusPedidosClienteService.instance.parar();
+    super.dispose();
   }
 
   void voltarParaInicio() {
@@ -70,6 +99,23 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       exibindoConta = false;
       exibindoFinalizarPedido = true;
       indexSelecionado = 2;
+    });
+  }
+
+  void iniciarFinalizacaoRapida() {
+    setState(() {
+      categoriaSelecionada = null;
+      exibindoConta = false;
+      exibindoFinalizarPedido = false;
+      indexSelecionado = 2;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      carrinhoPageKey.currentState?.iniciarFinalizacao();
     });
   }
 
@@ -206,6 +252,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               onPedidoFinalizado: abrirAbaPedidos,
             )
           : CarrinhoPage(
+              key: carrinhoPageKey,
               onFinalizarPedido: abrirFinalizarPedido,
               onVoltarInicio: voltarParaInicio,
             ),
@@ -225,18 +272,54 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       },
       child: Consumer<CarrinhoController>(
         builder: (context, carrinho, child) {
+          final mostrarAtalhoFinalizacao =
+              exibirBotaoFinalizarCompra &&
+              carrinho.quantidadeTotal > 0 &&
+              !exibindoConta &&
+              !exibindoFinalizarPedido &&
+              (indexSelecionado == 0 || indexSelecionado == 1);
+
           return Scaffold(
             body: exibindoConta
                 ? ContaPage(onVoltar: tratarBotaoVoltar)
                 : paginas[indexSelecionado],
             bottomNavigationBar: SafeArea(
               top: false,
-              child: SizedBox(
-                height: 58,
-                child: MediaQuery.removePadding(
-                  context: context,
-                  removeBottom: true,
-                  child: BottomNavigationBar(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (mostrarAtalhoFinalizacao)
+                    Container(
+                      width: double.infinity,
+                      color: Colors.white,
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+                      child: SizedBox(
+                        height: 46,
+                        child: ElevatedButton.icon(
+                          onPressed: iniciarFinalizacaoRapida,
+                          icon: const Icon(Icons.shopping_cart_checkout),
+                          label: const Text('Finalizar compra'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTemaService.primaria,
+                            foregroundColor: Colors.white,
+                            elevation: 2,
+                            textStyle: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  SizedBox(
+                    height: 58,
+                    child: MediaQuery.removePadding(
+                      context: context,
+                      removeBottom: true,
+                      child: BottomNavigationBar(
                     currentIndex: indexSelecionado,
                     onTap: trocarAba,
                     type: BottomNavigationBarType.fixed,
@@ -284,8 +367,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                         label: 'Mais',
                       ),
                     ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           );

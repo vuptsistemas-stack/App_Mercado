@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../controllers/carrinho_controller.dart';
 import '../services/app_tema_service.dart';
 import '../services/loja_funcionamento_service.dart';
+import '../services/push_notification_service.dart';
 import 'main_navigation_page.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 
@@ -32,6 +33,11 @@ class FinalizarPedidoPage extends StatefulWidget {
 class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
   static const String urlGeocodificarEndereco =
       'https://pkrkeeupcvxnqhynfvbw.functions.supabase.co/geocodificar-endereco';
+  static const List<String> meiosPagamentoPadrao = [
+    'Pix',
+    'Dinheiro',
+    'Cartão na entrega',
+  ];
 
   final observacaoController = TextEditingController();
   final trocoController = TextEditingController();
@@ -44,7 +50,8 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
   final outroReferenciaController = TextEditingController();
 
   String formaPagamento = 'Pix';
-  String tipoEntrega = 'localizacao_atual';
+  String tipoEntrega = 'endereco_cadastrado';
+  List<String> meiosPagamento = List<String>.from(meiosPagamentoPadrao);
 
   bool salvando = false;
   bool buscandoLocalizacao = false;
@@ -113,10 +120,23 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
 
       if (!mounted) return;
 
+      final configuracoes = resposta == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(resposta);
+      final formasConfiguradas = normalizarMeiosPagamento(
+        configuracoes['meios_pagamento'],
+      );
+      final entregaPrioritaria = normalizarPrioridadeEntrega(
+        configuracoes['prioridade_entrega'],
+      );
+
       setState(() {
-        configuracoesLoja = resposta == null
-            ? <String, dynamic>{}
-            : Map<String, dynamic>.from(resposta);
+        configuracoesLoja = configuracoes;
+        meiosPagamento = formasConfiguradas;
+        tipoEntrega = entregaPrioritaria;
+        if (!meiosPagamento.contains(formaPagamento)) {
+          formaPagamento = meiosPagamento.first;
+        }
         carregandoConfiguracoes = false;
       });
     } catch (_) {
@@ -127,6 +147,69 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
         carregandoConfiguracoes = false;
       });
     }
+  }
+
+  List<String> normalizarMeiosPagamento(dynamic valor) {
+    Iterable<dynamic> itens = const [];
+
+    if (valor is List) {
+      itens = valor;
+    } else if (valor is String && valor.trim().isNotEmpty) {
+      itens = valor.split(',');
+    }
+
+    final nomes = <String>[];
+    final chaves = <String>{};
+
+    for (final item in itens) {
+      final nome = item.toString().trim();
+      final chave = nome.toLowerCase();
+
+      if (nome.isEmpty || chaves.contains(chave)) continue;
+
+      nomes.add(nome);
+      chaves.add(chave);
+    }
+
+    return nomes.isEmpty ? List<String>.from(meiosPagamentoPadrao) : nomes;
+  }
+
+  String normalizarPrioridadeEntrega(dynamic valor) {
+    const opcoesValidas = {
+      'endereco_cadastrado',
+      'localizacao_atual',
+      'retirada_loja',
+      'outro_endereco',
+    };
+    final prioridade = valor?.toString().trim().toLowerCase() ?? '';
+
+    return opcoesValidas.contains(prioridade)
+        ? prioridade
+        : 'endereco_cadastrado';
+  }
+
+  bool ehPagamentoDinheiro([String? valor]) {
+    return (valor ?? formaPagamento).toLowerCase().contains('dinheiro');
+  }
+
+  IconData iconePagamento(String nome) {
+    final texto = nome.toLowerCase();
+
+    if (texto.contains('pix')) return Icons.pix;
+    if (texto.contains('dinheiro')) return Icons.payments;
+    if (texto.contains('cart') ||
+        texto.contains('crédito') ||
+        texto.contains('credito') ||
+        texto.contains('débito') ||
+        texto.contains('debito')) {
+      return Icons.credit_card;
+    }
+    if (texto.contains('boleto')) return Icons.receipt_long;
+    if (texto.contains('vale') || texto.contains('voucher')) {
+      return Icons.confirmation_number_outlined;
+    }
+
+    return Icons.account_balance_wallet_outlined;
   }
 
   void voltarTela() {
@@ -1287,7 +1370,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
       return;
     }
 
-    if (formaPagamento == 'Dinheiro') {
+    if (ehPagamentoDinheiro()) {
       final troco = valorTroco();
 
       if (troco != null && troco < carrinho.valorTotal) {
@@ -1318,6 +1401,44 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
 
       final cliente = Map<String, dynamic>.from(clienteRaw);
 
+      final clienteBloqueado =
+          cliente['bloqueado'] == true ||
+          cliente['bloqueado']?.toString().toLowerCase() == 'true';
+
+      if (clienteBloqueado) {
+        final motivo = cliente['bloqueio_motivo']?.toString().trim() ?? '';
+        throw Exception(
+          motivo.isEmpty
+              ? 'Seu cadastro está bloqueado para compras. Entre em contato com a loja.'
+              : 'Compra não autorizada: $motivo',
+        );
+      }
+
+      LojaFuncionamentoService.configurarCategoriasBloqueadasCliente(
+        cliente['categorias_bloqueadas'],
+      );
+
+      final itensRestritos = carrinho.itens
+          .where(
+            (item) => LojaFuncionamentoService.categoriaBloqueadaParaCliente(
+              item.produto.categoria,
+            ),
+          )
+          .toList();
+
+      if (itensRestritos.isNotEmpty) {
+        final categorias = itensRestritos
+            .map((item) => item.produto.categoria.trim())
+            .where((categoria) => categoria.isNotEmpty)
+            .toSet()
+            .join(', ');
+        throw Exception(
+          categorias.isEmpty
+              ? 'Seu carrinho contém produtos indisponíveis para o seu cadastro. Remova-os para continuar.'
+              : 'Seu carrinho contém produtos de categorias restritas para o seu cadastro: $categorias. Remova-os para continuar.',
+        );
+      }
+
       await garantirCoordenadasEntrega(cliente);
 
       final calculoFrete = calcularFrete(
@@ -1335,7 +1456,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
       final totalPedido =
           carrinho.valorTotal + taxaEntregaCalculada - descontoCupom;
 
-      if (formaPagamento == 'Dinheiro') {
+      if (ehPagamentoDinheiro()) {
         final troco = valorTroco();
 
         if (troco != null && troco < totalPedido) {
@@ -1412,7 +1533,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
             'referencia': referenciaPedido,
             'local_entrega': textoLocalEntrega(),
             'forma_pagamento': formaPagamento,
-            'troco_para': formaPagamento == 'Dinheiro' ? valorTroco() : null,
+            'troco_para': ehPagamentoDinheiro() ? valorTroco() : null,
             'observacao': observacaoController.text.trim(),
             'subtotal_produtos': carrinho.valorTotal,
             'subtotal': carrinho.valorTotal,
@@ -1512,6 +1633,11 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
         }
       }
 
+      await PushNotificationService.instance.notificarEventoPedido(
+        evento: 'NOVO_PEDIDO',
+        pedidoId: pedidoId.toString(),
+      );
+
       carrinho.limparCarrinho();
 
       if (!mounted) return;
@@ -1550,7 +1676,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
           : (value) {
               setState(() {
                 formaPagamento = value!;
-                if (formaPagamento != 'Dinheiro') {
+                if (!ehPagamentoDinheiro(formaPagamento)) {
                   trocoController.clear();
                 }
               });
@@ -1965,14 +2091,14 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(13),
               decoration: BoxDecoration(
-                color: retiradaSelecionada
-                    ? Colors.green.withValues(alpha: 0.09)
-                    : const Color(0xFFF9FAFB),
+                color: enderecoCadastradoSelecionado
+                    ? corPrimariaSuave
+                    : corPrimariaMuitoSuave,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: retiradaSelecionada
-                      ? Colors.green.withValues(alpha: 0.35)
-                      : Colors.black.withValues(alpha: 0.06),
+                  color: enderecoCadastradoSelecionado
+                      ? corPrimaria.withValues(alpha: 0.32)
+                      : corPrimaria.withValues(alpha: 0.10),
                 ),
               ),
               child: InkWell(
@@ -1980,14 +2106,14 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                 onTap: salvando
                     ? null
                     : () {
-                        selecionarTipoEntrega('retirada_loja');
+                        selecionarTipoEntrega('endereco_cadastrado');
                       },
                 child: Row(
                   children: [
                     Radio<String>(
-                      value: 'retirada_loja',
+                      value: 'endereco_cadastrado',
                       groupValue: tipoEntrega,
-                      activeColor: Colors.green,
+                      activeColor: corPrimaria,
                       onChanged: salvando
                           ? null
                           : (value) {
@@ -1995,21 +2121,24 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                             },
                     ),
                     const SizedBox(width: 4),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Retirar na loja',
+                          const Text(
+                            'Entregar no endereço cadastrado',
                             style: TextStyle(
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               fontSize: 15,
                             ),
                           ),
-                          SizedBox(height: 3),
+                          const SizedBox(height: 3),
                           Text(
-                            'Sem taxa de entrega. O pedido fica separado para retirada.',
-                            style: TextStyle(
+                            cliente == null
+                                ? 'Use o endereço salvo em seu cadastro.'
+                                : '${cliente['endereco'] ?? ''}, ${cliente['numero'] ?? ''}\n'
+                                      '${cliente['bairro'] ?? ''} - ${cliente['cidade'] ?? ''}',
+                            style: const TextStyle(
                               color: Colors.black54,
                               fontSize: 12,
                             ),
@@ -2018,15 +2147,46 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                       ),
                     ),
                     Icon(
-                      retiradaSelecionada
+                      enderecoCadastradoLocalizado
                           ? Icons.check_circle
-                          : Icons.storefront,
-                      color: retiradaSelecionada ? Colors.green : corPrimaria,
+                          : Icons.home_outlined,
+                      color: enderecoCadastradoLocalizado
+                          ? Colors.green
+                          : corPrimaria,
                     ),
                   ],
                 ),
               ),
             ),
+            if (enderecoCadastradoSelecionado) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      enderecoCadastradoLocalizado
+                          ? 'Endereço cadastrado localizado para cálculo do frete.'
+                          : 'Para calcular o frete por KM, calcule a distância pelo endereço cadastrado.',
+                      style: TextStyle(
+                        color: enderecoCadastradoLocalizado
+                            ? Colors.green
+                            : Colors.black54,
+                        fontSize: 12,
+                        fontWeight: enderecoCadastradoLocalizado
+                            ? FontWeight.w700
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    botaoCalcularEndereco(
+                      texto: 'Calcular distância pelo endereço cadastrado',
+                      cliente: cliente,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(13),
@@ -2068,7 +2228,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Entregar na minha localização atual',
+                                'Entregar na localização atual',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 15,
@@ -2076,7 +2236,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                               ),
                               SizedBox(height: 3),
                               Text(
-                                'Opção principal. O GPS precisa estar ativo para finalizar.',
+                                'Use o GPS do aparelho para informar o local da entrega.',
                                 style: TextStyle(
                                   color: Colors.black54,
                                   fontSize: 12,
@@ -2155,6 +2315,73 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
               ),
             ),
             const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: retiradaSelecionada
+                    ? Colors.green.withValues(alpha: 0.09)
+                    : const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: retiradaSelecionada
+                      ? Colors.green.withValues(alpha: 0.35)
+                      : Colors.black.withValues(alpha: 0.06),
+                ),
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: salvando
+                    ? null
+                    : () {
+                        selecionarTipoEntrega('retirada_loja');
+                      },
+                child: Row(
+                  children: [
+                    Radio<String>(
+                      value: 'retirada_loja',
+                      groupValue: tipoEntrega,
+                      activeColor: Colors.green,
+                      onChanged: salvando
+                          ? null
+                          : (value) {
+                              selecionarTipoEntrega(value!);
+                            },
+                    ),
+                    const SizedBox(width: 4),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Retirar na loja',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Sem taxa de entrega. O pedido fica separado para retirada.',
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      retiradaSelecionada
+                          ? Icons.check_circle
+                          : Icons.storefront,
+                      color: retiradaSelecionada ? Colors.green : corPrimaria,
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Theme(
               data: Theme.of(
                 context,
@@ -2165,64 +2392,16 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                 iconColor: corPrimaria,
                 collapsedIconColor: corPrimaria,
                 initiallyExpanded:
-                    tipoEntrega == 'endereco_cadastrado' ||
                     tipoEntrega == 'outro_endereco',
                 title: const Text(
-                  'Outras opções de entrega',
+                  'Mais opções',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
                 subtitle: const Text(
-                  'Use apenas se não quiser enviar a localização atual',
+                  'Informe um endereço diferente para esta compra',
                   style: TextStyle(fontSize: 12),
                 ),
                 children: [
-                  RadioListTile<String>(
-                    value: 'endereco_cadastrado',
-                    groupValue: tipoEntrega,
-                    activeColor: corPrimaria,
-                    dense: true,
-                    onChanged: salvando
-                        ? null
-                        : (value) {
-                            selecionarTipoEntrega(value!);
-                          },
-                    title: const Text('Endereço cadastrado'),
-                    subtitle: cliente == null
-                        ? null
-                        : Text(
-                            '${cliente['endereco'] ?? ''}, ${cliente['numero'] ?? ''}\n'
-                            '${cliente['bairro'] ?? ''} - ${cliente['cidade'] ?? ''}',
-                          ),
-                    secondary: Icon(Icons.home, color: corPrimaria),
-                  ),
-                  if (enderecoCadastradoSelecionado) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        enderecoCadastradoLocalizado
-                            ? 'Endereço cadastrado localizado para cálculo do frete.'
-                            : 'Para calcular o frete por KM, calcule a distância pelo endereço cadastrado.',
-                        style: TextStyle(
-                          color: enderecoCadastradoLocalizado
-                              ? Colors.green
-                              : Colors.black54,
-                          fontSize: 12,
-                          fontWeight: enderecoCadastradoLocalizado
-                              ? FontWeight.w700
-                              : FontWeight.normal,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: botaoCalcularEndereco(
-                        texto: 'Calcular distância pelo endereço cadastrado',
-                        cliente: cliente,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
                   RadioListTile<String>(
                     value: 'outro_endereco',
                     groupValue: tipoEntrega,
@@ -2233,7 +2412,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                         : (value) {
                             selecionarTipoEntrega(value!);
                           },
-                    title: const Text('Outro endereço'),
+                    title: const Text('Digitar outro endereço'),
                     subtitle: Text(textoEnderecoAlternativoResumo()),
                     secondary: Icon(Icons.add_location_alt, color: corPrimaria),
                   ),
@@ -2604,9 +2783,11 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                                 ),
                               ),
                             ),
-                            opcaoPagamento('Pix', Icons.pix),
-                            opcaoPagamento('Dinheiro', Icons.payments),
-                            if (formaPagamento == 'Dinheiro')
+                            ...meiosPagamento.map(
+                              (meio) =>
+                                  opcaoPagamento(meio, iconePagamento(meio)),
+                            ),
+                            if (ehPagamentoDinheiro())
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(
                                   16,
@@ -2649,10 +2830,6 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                                   ),
                                 ),
                               ),
-                            opcaoPagamento(
-                              'Cartão na entrega',
-                              Icons.credit_card,
-                            ),
                           ],
                         ),
                       ),

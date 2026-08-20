@@ -367,11 +367,15 @@ class SessaoMercadoCliente {
     // A Central manda a configuração oficial do mercado.
     // Mas, para teste local, se rodar com --dart-define=FONTE_PRODUTOS=BANCO_LOJA,
     // o app força BANCO_LOJA mesmo que a Central ainda esteja em API.
-    if (fonteBuild == 'BANCO_LOJA') {
+    if (_fonteIndicaBancoLoja(fonteBuild)) {
       return 'BANCO_LOJA';
     }
 
-    if (fonteCentral == 'BANCO_LOJA') {
+    if (_fonteIndicaBancoLoja(fonteCentral)) {
+      return 'BANCO_LOJA';
+    }
+
+    if (_apiBaseUrlIndicaBancoLoja(apiBaseUrl)) {
       return 'BANCO_LOJA';
     }
 
@@ -382,12 +386,16 @@ class SessaoMercadoCliente {
     final fonteBuild = AppMercadoConfig.fonteProdutos.trim().toUpperCase();
     final fonteCentral = fonteProdutosCentral.trim().toUpperCase();
 
-    if (fonteBuild == 'BANCO_LOJA') {
+    if (_fonteIndicaBancoLoja(fonteBuild)) {
       return 'BUILD';
     }
 
-    if (fonteCentral == 'BANCO_LOJA') {
+    if (_fonteIndicaBancoLoja(fonteCentral)) {
       return 'CENTRAL';
+    }
+
+    if (_apiBaseUrlIndicaBancoLoja(apiBaseUrl)) {
+      return 'API_PLACEHOLDER_SUPABASE';
     }
 
     if (fonteCentral.isNotEmpty) {
@@ -395,6 +403,24 @@ class SessaoMercadoCliente {
     }
 
     return 'BUILD';
+  }
+
+  static bool _fonteIndicaBancoLoja(String valor) {
+    final fonte = valor.trim().toUpperCase();
+
+    return fonte == 'BANCO_LOJA' ||
+        fonte == 'SUPABASE' ||
+        fonte == 'BANCO_SUPABASE' ||
+        fonte == 'BANCO_DA_LOJA' ||
+        fonte == 'PRODUTOS_APP' ||
+        fonte.contains('BANCO') && fonte.contains('LOJA') ||
+        fonte.contains('SUPABASE');
+  }
+
+  static bool _apiBaseUrlIndicaBancoLoja(String valor) {
+    final api = valor.trim().toLowerCase();
+
+    return api.contains('produtos-supabase.local');
   }
 
   static Map<String, dynamic> get dadosMercadoRegistro {

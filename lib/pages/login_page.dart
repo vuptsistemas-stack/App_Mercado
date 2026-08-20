@@ -1,8 +1,14 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import 'cadastro_cliente_page.dart';
+import 'recuperar_senha_page.dart';
 import '../services/app_tema_service.dart';
 
 class LoginPage extends StatefulWidget {
@@ -22,8 +28,12 @@ class _LoginPageState extends State<LoginPage> {
   final senhaController = TextEditingController();
 
   bool carregandoGoogle = false;
+  bool carregandoApple = false;
   bool carregandoEmail = false;
   bool senhaVisivel = false;
+
+  bool get mostrarLoginApple =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   String get redirectLogin {
     final package = LoginPage.appPackage.trim();
@@ -43,7 +53,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> loginGoogle() async {
-    if (carregandoGoogle || carregandoEmail) return;
+    if (carregandoGoogle || carregandoApple || carregandoEmail) return;
 
     setState(() {
       carregandoGoogle = true;
@@ -70,8 +80,83 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> loginApple() async {
+    if (!mostrarLoginApple ||
+        carregandoGoogle ||
+        carregandoApple ||
+        carregandoEmail) {
+      return;
+    }
+
+    setState(() {
+      carregandoApple = true;
+    });
+
+    try {
+      final auth = Supabase.instance.client.auth;
+      final rawNonce = auth.generateRawNonce();
+      final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+      final credencial = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+
+      final idToken = credencial.identityToken;
+      if (idToken == null || idToken.isEmpty) {
+        throw const AuthException(
+          'A Apple não retornou uma credencial válida.',
+        );
+      }
+
+      await auth.signInWithIdToken(
+        provider: OAuthProvider.apple,
+        idToken: idToken,
+        nonce: rawNonce,
+      );
+
+      final nomeCompleto = [credencial.givenName, credencial.familyName]
+          .whereType<String>()
+          .map((parte) => parte.trim())
+          .where((parte) {
+            return parte.isNotEmpty;
+          })
+          .join(' ');
+
+      if (nomeCompleto.isNotEmpty) {
+        await auth.updateUser(
+          UserAttributes(
+            data: {
+              'full_name': nomeCompleto,
+              'given_name': credencial.givenName,
+              'family_name': credencial.familyName,
+            },
+          ),
+        );
+      }
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (!mounted || e.code == AuthorizationErrorCode.canceled) return;
+      mostrarMensagem('Não foi possível entrar com a Apple.', erro: true);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      mostrarMensagem(e.message, erro: true);
+    } catch (e) {
+      if (!mounted) return;
+      mostrarMensagem('Erro ao entrar com a Apple: $e', erro: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          carregandoApple = false;
+        });
+      }
+    }
+  }
+
   Future<void> loginEmail() async {
-    if (carregandoGoogle || carregandoEmail) return;
+    if (carregandoGoogle || carregandoApple || carregandoEmail) return;
 
     final email = emailController.text.trim();
     final senha = senhaController.text.trim();
@@ -114,7 +199,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> criarContaEmail() async {
-    if (carregandoGoogle || carregandoEmail) return;
+    if (carregandoGoogle || carregandoApple || carregandoEmail) return;
 
     final email = emailController.text.trim();
     final senha = senhaController.text.trim();
@@ -158,36 +243,24 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> resetarSenha() async {
-    final email = emailController.text.trim();
-
-    if (email.isEmpty || !email.contains('@')) {
-      mostrarMensagem(
-        'Digite seu e-mail primeiro para redefinir a senha.',
-        erro: true,
-      );
+  Future<void> abrirRecuperacaoSenha() async {
+    if (carregandoGoogle || carregandoApple || carregandoEmail) {
       return;
     }
 
-    try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(
-        email,
-        redirectTo: redirectLogin,
-      );
-
-      if (!mounted) return;
-      mostrarMensagem('Enviamos o link de redefinição para seu e-mail.');
-    } on AuthException catch (e) {
-      if (!mounted) return;
-      mostrarMensagem(e.message, erro: true);
-    } catch (e) {
-      if (!mounted) return;
-      mostrarMensagem('Erro ao enviar redefinição: $e', erro: true);
-    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecuperarSenhaPage(
+          emailInicial: emailController.text.trim(),
+          appPackage: LoginPage.appPackage,
+        ),
+      ),
+    );
   }
 
   Future<void> abrirCadastroCliente() async {
-    if (carregandoGoogle || carregandoEmail) {
+    if (carregandoGoogle || carregandoApple || carregandoEmail) {
       return;
     }
 
@@ -318,14 +391,17 @@ class _LoginPageState extends State<LoginPage> {
                                 _FormularioLoginSemRolagem(
                                   corPrimaria: corPrimaria,
                                   carregandoGoogle: carregandoGoogle,
+                                  carregandoApple: carregandoApple,
                                   carregandoEmail: carregandoEmail,
+                                  mostrarApple: mostrarLoginApple,
                                   senhaVisivel: senhaVisivel,
                                   emailController: emailController,
                                   senhaController: senhaController,
                                   onGoogle: loginGoogle,
+                                  onApple: loginApple,
                                   onEntrar: loginEmail,
                                   onCriarConta: abrirCadastroCliente,
-                                  onResetarSenha: resetarSenha,
+                                  onResetarSenha: abrirRecuperacaoSenha,
                                   onToggleSenha: () {
                                     setState(() {
                                       senhaVisivel = !senhaVisivel;
@@ -574,11 +650,14 @@ class _CardMarcaLogin extends StatelessWidget {
 class _FormularioLoginSemRolagem extends StatelessWidget {
   final Color corPrimaria;
   final bool carregandoGoogle;
+  final bool carregandoApple;
   final bool carregandoEmail;
+  final bool mostrarApple;
   final bool senhaVisivel;
   final TextEditingController emailController;
   final TextEditingController senhaController;
   final VoidCallback onGoogle;
+  final VoidCallback onApple;
   final VoidCallback onEntrar;
   final VoidCallback onCriarConta;
   final VoidCallback onResetarSenha;
@@ -587,11 +666,14 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
   const _FormularioLoginSemRolagem({
     required this.corPrimaria,
     required this.carregandoGoogle,
+    required this.carregandoApple,
     required this.carregandoEmail,
+    required this.mostrarApple,
     required this.senhaVisivel,
     required this.emailController,
     required this.senhaController,
     required this.onGoogle,
+    required this.onApple,
     required this.onEntrar,
     required this.onCriarConta,
     required this.onResetarSenha,
@@ -600,7 +682,7 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bloqueado = carregandoGoogle || carregandoEmail;
+    final bloqueado = carregandoGoogle || carregandoApple || carregandoEmail;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -743,6 +825,18 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
                     ),
             ),
           ),
+          if (mostrarApple) ...[
+            const SizedBox(height: 9),
+            SignInWithAppleButton(
+              onPressed: bloqueado ? null : onApple,
+              text: carregandoApple
+                  ? 'Conectando com a Apple...'
+                  : 'Entrar com Apple',
+              style: SignInWithAppleButtonStyle.black,
+              height: 49,
+              borderRadius: const BorderRadius.all(Radius.circular(15)),
+            ),
+          ],
           const SizedBox(height: 10),
           Center(
             child: Wrap(

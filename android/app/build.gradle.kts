@@ -1,6 +1,8 @@
 ﻿@file:Suppress("DEPRECATION")
 
 import java.util.Base64
+import java.util.Properties
+import java.io.FileInputStream
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -9,6 +11,10 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 fun dartDefine(chave: String, padrao: String): String {
@@ -45,6 +51,13 @@ val appNome = dartDefine(
     "App Mercado",
 )
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 android {
     // O namespace é onde está a MainActivity.
     // Pode continuar fixo mesmo com applicationId dinâmico.
@@ -60,11 +73,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
         // Package real instalado no Android.
-        // Agora fica dinâmico por loja via:
+        // Fica dinâmico por loja via:
         // --dart-define=APP_PACKAGE=br.com.apppreco.mercado.saomateus
         applicationId = appPackage
 
@@ -74,16 +88,25 @@ android {
         versionName = flutter.versionName
 
         // Nome exibido no celular.
-        // Agora fica dinâmico por loja via:
+        // Fica dinâmico por loja via:
         // --dart-define=APP_NAME=SM Compras
         resValue("string", "app_name", appNome)
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+            storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+            storePassword = keystoreProperties["storePassword"] as String
+        }
+    }
+
     buildTypes {
         release {
-            // Assinando com debug por enquanto.
-            // Depois configuramos uma assinatura release oficial.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -98,3 +121,6 @@ flutter {
     source = "../.."
 }
 
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+}

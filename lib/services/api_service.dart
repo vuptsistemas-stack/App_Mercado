@@ -121,12 +121,13 @@ class ApiService {
     try {
       final configuracoes =
           await LojaFuncionamentoService.buscarConfiguracoes();
+      var visiveis = _filtrarCategoriasBloqueadas(produtos, configuracoes);
 
       if (configuracoes.exibirProdutosSemEstoque) {
-        return produtos;
+        return visiveis;
       }
 
-      return _filtrarProdutosComEstoque(produtos);
+      return _filtrarProdutosComEstoque(visiveis);
     } catch (_) {
       return produtos;
     }
@@ -139,6 +140,44 @@ class ApiService {
 
   static List<Produto> _filtrarProdutosComEstoque(List<Produto> produtos) {
     return produtos.where((produto) => produto.estoque > 0).toList();
+  }
+
+  static List<Produto> _filtrarCategoriasBloqueadas(
+    List<Produto> produtos,
+    LojaConfiguracoesCliente configuracoes,
+  ) {
+    final categoriasCliente =
+        LojaFuncionamentoService.categoriasBloqueadasCliente;
+
+    if (categoriasCliente.isEmpty) {
+      return produtos;
+    }
+
+    final bloqueadas = categoriasCliente
+        .map(LojaFuncionamentoService.normalizarCategoria)
+        .where((categoria) => categoria.isNotEmpty)
+        .toSet();
+
+    return produtos.where((produto) {
+      final categoria = LojaFuncionamentoService.normalizarCategoria(
+        produto.categoria,
+      );
+
+      return categoria.isEmpty || !bloqueadas.contains(categoria);
+    }).toList();
+  }
+
+  static bool _categoriaBloqueada(
+    String categoria,
+    LojaConfiguracoesCliente configuracoes,
+  ) {
+    final categoriaNormalizada = LojaFuncionamentoService.normalizarCategoria(
+      categoria,
+    );
+
+    if (categoriaNormalizada.isEmpty) return false;
+
+    return LojaFuncionamentoService.categoriaBloqueadaParaCliente(categoria);
   }
 
   static Future<List<Produto>> _buscarProdutosApiPagina({
@@ -168,7 +207,12 @@ class ApiService {
       _converterResposta(response.body),
     );
 
-    return removerProdutosDuplicados(produtos);
+    final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
+
+    return _filtrarCategoriasBloqueadas(
+      removerProdutosDuplicados(produtos),
+      configuracoes,
+    );
   }
 
   static Future<List<Produto>> _listarProdutosApiPaginados({
@@ -181,7 +225,8 @@ class ApiService {
     final limiteCorrigido = limite < 1 ? 20 : limite;
     final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
 
-    if (configuracoes.exibirProdutosSemEstoque) {
+    if (configuracoes.exibirProdutosSemEstoque &&
+        LojaFuncionamentoService.categoriasBloqueadasCliente.isEmpty) {
       final produtos = await _buscarProdutosApiPagina(
         path: path,
         pagina: paginaCorrigida,
@@ -239,7 +284,9 @@ class ApiService {
         break;
       }
 
-      final visiveis = _filtrarProdutosComEstoque(lote);
+      final visiveis = configuracoes.exibirProdutosSemEstoque
+          ? lote
+          : _filtrarProdutosComEstoque(lote);
 
       for (final produto in visiveis) {
         final chave = _chaveProdutoUnico(produto);
@@ -326,6 +373,10 @@ class ApiService {
       }
 
       final categoriaFiltro = categoria.trim();
+      if (_categoriaBloqueada(categoriaFiltro, configuracoes)) {
+        return [];
+      }
+
       if (categoriaFiltro.isNotEmpty) {
         consulta = consulta.eq('categoria', categoriaFiltro);
       }
@@ -367,7 +418,7 @@ class ApiService {
         );
       }
 
-      return produtos;
+      return _filtrarCategoriasBloqueadas(produtos, configuracoes);
     } catch (e) {
       // ignore: avoid_print
       print('APP_MERCADO BANCO_LOJA ERRO produtos_app: $e');
@@ -377,6 +428,8 @@ class ApiService {
 
   static Future<List<String>> _listarCategoriasBancoLoja() async {
     try {
+      final configuracoes =
+          await LojaFuncionamentoService.buscarConfiguracoes();
       final resposta = await _supabaseLoja
           .from('produtos_app')
           .select('categoria')
@@ -403,7 +456,9 @@ class ApiService {
         'APP_MERCADO BANCO_LOJA: categorias retornou ${lista.length} categoria(s).',
       );
 
-      return lista;
+      return lista
+          .where((categoria) => !_categoriaBloqueada(categoria, configuracoes))
+          .toList();
     } catch (e) {
       // ignore: avoid_print
       print('APP_MERCADO BANCO_LOJA ERRO categorias: $e');
@@ -415,6 +470,12 @@ class ApiService {
     String categoria,
   ) async {
     try {
+      final configuracoes =
+          await LojaFuncionamentoService.buscarConfiguracoes();
+      if (_categoriaBloqueada(categoria, configuracoes)) {
+        return [];
+      }
+
       dynamic consulta = _supabaseLoja
           .from('produtos_app')
           .select('subcategoria')
@@ -732,7 +793,6 @@ class ApiService {
         .replaceAll(RegExp(r'\s+'), ' ');
   }
 
-
   static List<Produto> _filtrarProdutosPorBuscaPrecisa(
     List<Produto> produtos,
     String termo,
@@ -868,12 +928,8 @@ class ApiService {
     // localmente pelo termo digitado. Assim, "fralda" só mostra produtos
     // cujo nome realmente contenha "fralda".
     final urls = ehNumerico
-        ? [
-            _uri('/produto/ean/${Uri.encodeComponent(termoBusca)}'),
-          ]
-        : [
-            _uri('/produto/descricao/${Uri.encodeComponent(termoBusca)}'),
-          ];
+        ? [_uri('/produto/ean/${Uri.encodeComponent(termoBusca)}')]
+        : [_uri('/produto/descricao/${Uri.encodeComponent(termoBusca)}')];
 
     for (final url in urls) {
       try {
@@ -905,6 +961,192 @@ class ApiService {
     return [];
   }
 
+  static Future<Produto?> buscarProdutoExatoParaOferta({
+    required String ean,
+    required String produtoId,
+    required String nome,
+  }) async {
+    if (_usarBancoLoja) {
+      return _buscarProdutoExatoBancoLoja(
+        ean: ean,
+        produtoId: produtoId,
+        nome: nome,
+      );
+    }
+
+    final eanLimpo = ean.trim();
+
+    if (eanLimpo.isNotEmpty) {
+      final tentativas = <String>[eanLimpo];
+      final apenasNumeros = RegExp(r'^[0-9]+$').hasMatch(eanLimpo);
+
+      if (apenasNumeros && eanLimpo.length < 14) {
+        tentativas.add(eanLimpo.padLeft(14, '0'));
+      }
+
+      for (final tentativa in tentativas.toSet()) {
+        try {
+          final response = await _get(
+            _uri('/produto/ean/${Uri.encodeComponent(tentativa)}'),
+          );
+
+          if (response.statusCode != 200) {
+            continue;
+          }
+
+          final produtos =
+              await ProdutoConfiguracaoAppService.aplicarConfiguracoes(
+                _converterResposta(response.body),
+              );
+          final produtoExato = _produtoComMesmoEan(produtos, eanLimpo);
+
+          if (produtoExato != null) {
+            return produtoExato;
+          }
+        } catch (_) {}
+      }
+
+      return null;
+    }
+
+    final produtoIdLimpo = produtoId.trim();
+
+    if (produtoIdLimpo.isNotEmpty) {
+      try {
+        final produtos = await _buscarProdutosApiPagina(
+          path: '/produtos',
+          pagina: 1,
+          limite: 20,
+          busca: produtoIdLimpo,
+        );
+        final produtoIdNormalizado = _normalizarEan(produtoIdLimpo);
+
+        for (final produto in produtos) {
+          if (_normalizarEan(produto.produtoId.toString()) ==
+              produtoIdNormalizado) {
+            return produto;
+          }
+        }
+      } catch (_) {}
+
+      return null;
+    }
+
+    final nomeLimpo = nome.trim();
+
+    if (nomeLimpo.isNotEmpty) {
+      try {
+        final response = await _get(
+          _uri('/produto/descricao/${Uri.encodeComponent(nomeLimpo)}'),
+        );
+
+        if (response.statusCode == 200) {
+          final produtos =
+              await ProdutoConfiguracaoAppService.aplicarConfiguracoes(
+                _converterResposta(response.body),
+              );
+          return _produtoComMesmoNome(produtos, nomeLimpo);
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  static Future<Produto?> _buscarProdutoExatoBancoLoja({
+    required String ean,
+    required String produtoId,
+    required String nome,
+  }) async {
+    try {
+      final eanLimpo = ean.trim();
+
+      if (eanLimpo.isNotEmpty) {
+        final porEan = await _supabaseLoja
+            .from('produtos_app')
+            .select()
+            .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+            .eq('ativo', true)
+            .eq('vende_no_app', true)
+            .eq('ean', eanLimpo)
+            .limit(1);
+
+        final produtosPorEan = _produtosBancoParaModelos(
+          List<dynamic>.from(porEan),
+        );
+
+        if (produtosPorEan.isNotEmpty) {
+          return produtosPorEan.first;
+        }
+
+        final porCodigoBarras = await _supabaseLoja
+            .from('produtos_app')
+            .select()
+            .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+            .eq('ativo', true)
+            .eq('vende_no_app', true)
+            .eq('codigo_barras', eanLimpo)
+            .limit(1);
+
+        final produtosPorCodigoBarras = _produtosBancoParaModelos(
+          List<dynamic>.from(porCodigoBarras),
+        );
+
+        if (produtosPorCodigoBarras.isNotEmpty) {
+          return produtosPorCodigoBarras.first;
+        }
+
+        return null;
+      }
+
+      final produtoIdLimpo = produtoId.trim();
+
+      if (produtoIdLimpo.isNotEmpty) {
+        final porProdutoId = await _supabaseLoja
+            .from('produtos_app')
+            .select()
+            .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+            .eq('ativo', true)
+            .eq('vende_no_app', true)
+            .eq('produto_id', produtoIdLimpo)
+            .limit(1);
+
+        final produtosPorProdutoId = _produtosBancoParaModelos(
+          List<dynamic>.from(porProdutoId),
+        );
+
+        if (produtosPorProdutoId.isNotEmpty) {
+          return produtosPorProdutoId.first;
+        }
+
+        return null;
+      }
+
+      final nomeLimpo = nome.trim();
+
+      if (nomeLimpo.isNotEmpty) {
+        final porNome = await _supabaseLoja
+            .from('produtos_app')
+            .select()
+            .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+            .eq('ativo', true)
+            .eq('vende_no_app', true)
+            .eq('nome_produto', nomeLimpo)
+            .limit(1);
+
+        final produtosPorNome = _produtosBancoParaModelos(
+          List<dynamic>.from(porNome),
+        );
+
+        if (produtosPorNome.isNotEmpty) {
+          return produtosPorNome.first;
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
   static Future<List<String>> listarCategorias() async {
     if (_usarBancoLoja) {
       // ignore: avoid_print
@@ -921,6 +1163,8 @@ class ApiService {
         final dados = jsonDecode(response.body);
 
         if (dados is Map && dados['categorias'] is List) {
+          final configuracoes =
+              await LojaFuncionamentoService.buscarConfiguracoes();
           return (dados['categorias'] as List)
               .map((item) {
                 if (item is Map && item['nome_grupo'] != null) {
@@ -930,10 +1174,15 @@ class ApiService {
                 return item.toString();
               })
               .where((categoria) => categoria.trim().isNotEmpty)
+              .where(
+                (categoria) => !_categoriaBloqueada(categoria, configuracoes),
+              )
               .toList();
         }
 
         if (dados is List) {
+          final configuracoes =
+              await LojaFuncionamentoService.buscarConfiguracoes();
           return dados
               .map((item) {
                 if (item is Map && item['nome_grupo'] != null) {
@@ -943,6 +1192,9 @@ class ApiService {
                 return item.toString();
               })
               .where((categoria) => categoria.trim().isNotEmpty)
+              .where(
+                (categoria) => !_categoriaBloqueada(categoria, configuracoes),
+              )
               .toList();
         }
       }
@@ -954,6 +1206,11 @@ class ApiService {
   static Future<List<String>> listarSubcategoriasPorCategoria(
     String categoria,
   ) async {
+    final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
+    if (_categoriaBloqueada(categoria, configuracoes)) {
+      return [];
+    }
+
     if (_usarBancoLoja) {
       // ignore: avoid_print
       print(
@@ -1013,6 +1270,11 @@ class ApiService {
     int limite = 20,
     String busca = '',
   }) async {
+    final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
+    if (_categoriaBloqueada(categoria, configuracoes)) {
+      return [];
+    }
+
     if (_usarBancoLoja) {
       // ignore: avoid_print
       print('APP_MERCADO PRODUTOS: usando BANCO_LOJA categoria=$categoria');

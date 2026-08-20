@@ -25,6 +25,9 @@ class LojaConfiguracoesCliente {
   final bool exibirEstoque;
   final bool exibirProdutosSemEstoque;
   final bool bloquearVendaSemEstoque;
+  final bool alertarEstoqueBaixoCarrinho;
+  final double limiteAlertaEstoqueBaixoCarrinho;
+  final bool exibirBotaoFinalizarCompra;
   final bool bloquearCarrinhoLojaFechada;
   final bool cobrarFrete;
   final double pedidoMinimo;
@@ -43,6 +46,9 @@ class LojaConfiguracoesCliente {
     required this.exibirEstoque,
     required this.exibirProdutosSemEstoque,
     required this.bloquearVendaSemEstoque,
+    required this.alertarEstoqueBaixoCarrinho,
+    required this.limiteAlertaEstoqueBaixoCarrinho,
+    required this.exibirBotaoFinalizarCompra,
     required this.bloquearCarrinhoLojaFechada,
     required this.cobrarFrete,
     required this.pedidoMinimo,
@@ -63,6 +69,9 @@ class LojaConfiguracoesCliente {
       exibirEstoque: true,
       exibirProdutosSemEstoque: true,
       bloquearVendaSemEstoque: true,
+      alertarEstoqueBaixoCarrinho: false,
+      limiteAlertaEstoqueBaixoCarrinho: 5,
+      exibirBotaoFinalizarCompra: false,
       bloquearCarrinhoLojaFechada: true,
       cobrarFrete: true,
       pedidoMinimo: 0,
@@ -108,6 +117,17 @@ class LojaConfiguracoesCliente {
         dados['bloquear_venda_sem_estoque'],
         true,
       ),
+      alertarEstoqueBaixoCarrinho: LojaFuncionamentoService._booleano(
+        dados['alertar_estoque_baixo_carrinho'],
+        false,
+      ),
+      limiteAlertaEstoqueBaixoCarrinho: LojaFuncionamentoService._numero(
+        dados['limite_alerta_estoque_baixo_carrinho'],
+      ),
+      exibirBotaoFinalizarCompra: LojaFuncionamentoService._booleano(
+        dados['exibir_botao_finalizar_compra'],
+        false,
+      ),
       bloquearCarrinhoLojaFechada: LojaFuncionamentoService._booleano(
         dados['bloquear_carrinho_loja_fechada'],
         true,
@@ -146,19 +166,144 @@ class LojaFuncionamentoService {
 
   static LojaConfiguracoesCliente? _cacheConfiguracoes;
   static DateTime? _cacheConfiguracoesEm;
+  static List<String> _categoriasBloqueadasCliente = [];
+  static DateTime? _categoriasBloqueadasClienteEm;
+  static String? _categoriasBloqueadasClienteUserId;
 
   static const Duration _duracaoCache = Duration(seconds: 30);
+
+  static List<String> _listaTextos(dynamic valor) {
+    Iterable<dynamic> itens = const [];
+
+    if (valor is List) {
+      itens = valor;
+    } else if (valor is String && valor.trim().isNotEmpty) {
+      itens = valor.split(',');
+    }
+
+    final resultado = <String>[];
+    final chaves = <String>{};
+
+    for (final item in itens) {
+      final nome = item.toString().trim();
+      final chave = normalizarCategoria(nome);
+
+      if (nome.isEmpty || chave.isEmpty || chaves.contains(chave)) continue;
+
+      resultado.add(nome);
+      chaves.add(chave);
+    }
+
+    return resultado;
+  }
+
+  static String normalizarCategoria(String valor) {
+    return valor
+        .trim()
+        .toUpperCase()
+        .replaceAll('Á', 'A')
+        .replaceAll('À', 'A')
+        .replaceAll('Â', 'A')
+        .replaceAll('Ã', 'A')
+        .replaceAll('Ä', 'A')
+        .replaceAll('É', 'E')
+        .replaceAll('È', 'E')
+        .replaceAll('Ê', 'E')
+        .replaceAll('Ë', 'E')
+        .replaceAll('Í', 'I')
+        .replaceAll('Ì', 'I')
+        .replaceAll('Î', 'I')
+        .replaceAll('Ï', 'I')
+        .replaceAll('Ó', 'O')
+        .replaceAll('Ò', 'O')
+        .replaceAll('Ô', 'O')
+        .replaceAll('Õ', 'O')
+        .replaceAll('Ö', 'O')
+        .replaceAll('Ú', 'U')
+        .replaceAll('Ù', 'U')
+        .replaceAll('Û', 'U')
+        .replaceAll('Ü', 'U')
+        .replaceAll('Ç', 'C')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  static List<String> get categoriasBloqueadasCliente =>
+      List<String>.unmodifiable(_categoriasBloqueadasCliente);
+
+  static void configurarCategoriasBloqueadasCliente(dynamic valor) {
+    _categoriasBloqueadasCliente = _listaTextos(valor);
+    _categoriasBloqueadasClienteUserId =
+        Supabase.instance.client.auth.currentUser?.id;
+    _categoriasBloqueadasClienteEm = DateTime.now();
+  }
+
+  static void limparCategoriasBloqueadasCliente() {
+    _categoriasBloqueadasCliente = [];
+    _categoriasBloqueadasClienteUserId = null;
+    _categoriasBloqueadasClienteEm = null;
+  }
+
+  static bool categoriaBloqueadaParaCliente(String categoria) {
+    final chave = normalizarCategoria(categoria);
+
+    if (chave.isEmpty) return false;
+
+    return _categoriasBloqueadasCliente.any(
+      (item) => normalizarCategoria(item) == chave,
+    );
+  }
+
+  static Future<void> _atualizarCategoriasBloqueadasCliente({
+    bool forcarAtualizacao = false,
+  }) async {
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser?.id;
+
+    if (userId == null || userId.isEmpty) {
+      limparCategoriasBloqueadasCliente();
+      return;
+    }
+
+    final agora = DateTime.now();
+    final mesmoUsuario = _categoriasBloqueadasClienteUserId == userId;
+    final cacheValido = _categoriasBloqueadasClienteEm != null &&
+        agora.difference(_categoriasBloqueadasClienteEm!) <= _duracaoCache;
+
+    if (!forcarAtualizacao && mesmoUsuario && cacheValido) return;
+
+    try {
+      final resposta = await client
+          .from('clientes')
+          .select('categorias_bloqueadas')
+          .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      configurarCategoriasBloqueadasCliente(
+        resposta?['categorias_bloqueadas'],
+      );
+    } catch (_) {
+      _categoriasBloqueadasCliente = [];
+      _categoriasBloqueadasClienteUserId = userId;
+      _categoriasBloqueadasClienteEm = agora;
+    }
+  }
 
   static void limparCache() {
     _cache = null;
     _cacheEm = null;
     _cacheConfiguracoes = null;
     _cacheConfiguracoesEm = null;
+    limparCategoriasBloqueadasCliente();
   }
 
   static Future<LojaConfiguracoesCliente> buscarConfiguracoes({
     bool forcarAtualizacao = false,
   }) async {
+    await _atualizarCategoriasBloqueadasCliente(
+      forcarAtualizacao: forcarAtualizacao,
+    );
+
     final agora = DateTime.now();
 
     if (!forcarAtualizacao &&
@@ -216,6 +361,73 @@ class LojaFuncionamentoService {
         configuracoes.bloquearVendaSemEstoque,
       );
     } catch (_) {}
+  }
+
+  static Future<bool> alertarEstoqueBaixoAoAdicionar(
+    BuildContext context, {
+    required double estoqueAtual,
+    required String unidade,
+  }) async {
+    final configuracoes = await buscarConfiguracoes();
+
+    if (!context.mounted ||
+        !configuracoes.exibirEstoque ||
+        !configuracoes.alertarEstoqueBaixoCarrinho ||
+        estoqueAtual <= 0 ||
+        configuracoes.limiteAlertaEstoqueBaixoCarrinho <= 0 ||
+        estoqueAtual > configuracoes.limiteAlertaEstoqueBaixoCarrinho) {
+      return false;
+    }
+
+    final quantidade = _formatarQuantidadeEstoque(estoqueAtual);
+    final unidadeNormalizada = unidade.trim().toUpperCase();
+    final sufixo = unidadeNormalizada.isEmpty ? '' : ' $unidadeNormalizada';
+
+    final retirarItem = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.inventory_2_outlined,
+          color: Color(0xFFF59E0B),
+          size: 34,
+        ),
+        title: const Text('Estoque baixo'),
+        content: Text(
+          'Restam apenas $quantidade$sufixo deste produto. Deseja continuar com o item no carrinho?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Retirar item'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Continuar comprando'),
+          ),
+        ],
+      ),
+    );
+
+    return retirarItem ?? false;
+  }
+
+  static String _formatarQuantidadeEstoque(double valor) {
+    if ((valor - valor.roundToDouble()).abs() < 0.0001) {
+      return valor.round().toString();
+    }
+
+    var texto = valor.toStringAsFixed(3).replaceAll('.', ',');
+
+    while (texto.endsWith('0')) {
+      texto = texto.substring(0, texto.length - 1);
+    }
+
+    if (texto.endsWith(',')) {
+      texto = texto.substring(0, texto.length - 1);
+    }
+
+    return texto;
   }
 
   static Future<bool> podeAdicionarAoCarrinho(

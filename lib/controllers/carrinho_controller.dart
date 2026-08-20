@@ -128,18 +128,16 @@ class CarrinhoController extends ChangeNotifier {
           continue;
         }
 
-        final produtoComOferta =
-            await OfertasService.aplicarPrecoOfertaAtiva(produtoAtual);
+        final produtoComOferta = await OfertasService.aplicarPrecoOfertaAtiva(
+          produtoAtual,
+        );
 
         if (_produtoMudou(item.produto, produtoComOferta)) {
           totalAtualizados++;
         }
 
         itensAtualizados.add(
-          CarrinhoItem(
-            produto: produtoComOferta,
-            quantidade: item.quantidade,
-          ),
+          CarrinhoItem(produto: produtoComOferta, quantidade: item.quantidade),
         );
       }
 
@@ -179,7 +177,15 @@ class CarrinhoController extends ChangeNotifier {
   }
 
   bool podeAdicionarProduto(Produto produto) {
+    return podeAdicionarQuantidade(produto, 1);
+  }
+
+  bool podeAdicionarQuantidade(Produto produto, int incremento) {
     if (produto.nome.trim().isEmpty) {
+      return false;
+    }
+
+    if (incremento <= 0) {
       return false;
     }
 
@@ -192,7 +198,8 @@ class CarrinhoController extends ChangeNotifier {
     }
 
     final index = _indexProduto(produto);
-    final proximaQuantidade = index >= 0 ? _itens[index].quantidade + 1 : 1;
+    final proximaQuantidade =
+        (index >= 0 ? _itens[index].quantidade : 0) + incremento;
 
     return _quantidadeDentroEstoque(produto, proximaQuantidade);
   }
@@ -220,31 +227,29 @@ class CarrinhoController extends ChangeNotifier {
   bool get possuiProblemaEstoque => itensComProblemaEstoque.isNotEmpty;
 
   void adicionarProduto(Produto produto) {
-    if (!podeAdicionarProduto(produto)) {
-      return;
+    adicionarQuantidade(produto, 1);
+  }
+
+  bool adicionarQuantidade(Produto produto, int incremento) {
+    if (!podeAdicionarQuantidade(produto, incremento)) {
+      return false;
     }
 
     final index = _indexProduto(produto);
 
     if (index >= 0) {
-      _itens[index].quantidade++;
+      _itens[index].quantidade += incremento;
     } else {
-      _itens.add(
-        CarrinhoItem(
-          produto: produto,
-          quantidade: 1,
-        ),
-      );
+      _itens.add(CarrinhoItem(produto: produto, quantidade: incremento));
     }
 
     salvarCarrinho();
     notifyListeners();
+    return true;
   }
 
   void removerProduto(Produto produto) {
-    _itens.removeWhere(
-      (item) => _mesmoProduto(item.produto, produto),
-    );
+    _itens.removeWhere((item) => _mesmoProduto(item.produto, produto));
 
     salvarCarrinho();
     notifyListeners();
@@ -271,10 +276,7 @@ class CarrinhoController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void definirQuantidade({
-    required Produto produto,
-    required int quantidade,
-  }) {
+  void definirQuantidade({required Produto produto, required int quantidade}) {
     final index = _indexProduto(produto);
 
     if (quantidade <= 0) {
@@ -302,10 +304,7 @@ class CarrinhoController extends ChangeNotifier {
       _itens[index].quantidade = quantidadeAjustada;
     } else {
       _itens.add(
-        CarrinhoItem(
-          produto: produto,
-          quantidade: quantidadeAjustada,
-        ),
+        CarrinhoItem(produto: produto, quantidade: quantidadeAjustada),
       );
     }
 
@@ -324,9 +323,7 @@ class CarrinhoController extends ChangeNotifier {
   }
 
   int _indexProduto(Produto produto) {
-    return _itens.indexWhere(
-      (item) => _mesmoProduto(item.produto, produto),
-    );
+    return _itens.indexWhere((item) => _mesmoProduto(item.produto, produto));
   }
 
   bool _itemComProblemaEstoque(CarrinhoItem item) {

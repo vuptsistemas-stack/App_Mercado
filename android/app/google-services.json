@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "491158654376",
+    "project_id": "aplicativo-admin-e5b92",
+    "storage_bucket": "aplicativo-admin-e5b92.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:491158654376:android:8955f827efdf2257c6219d",
+        "android_client_info": {
+          "package_name": "br.com.apppreco.admin.saomateus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcrYkZfS8Sm2EzArTB1P5I2TF4UJIfsUo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:491158654376:android:9cc8c1f83f79ebcbc6219d",
+        "android_client_info": {
+          "package_name": "br.com.apppreco.mercado.saomateus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcrYkZfS8Sm2EzArTB1P5I2TF4UJIfsUo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
