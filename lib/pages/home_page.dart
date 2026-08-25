@@ -1999,7 +1999,10 @@ class _HomePageState extends State<HomePage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final largura = constraints.maxWidth;
-          final altura = (largura * 0.52).clamp(184.0, 198.0).toDouble();
+          final alturaBase = (largura * 0.52).clamp(184.0, 198.0).toDouble();
+          final altura = constraints.hasBoundedHeight
+              ? constraints.maxHeight
+              : alturaBase;
 
           final tituloSuper = (largura * 0.052).clamp(17.0, 23.0).toDouble();
           final tituloOferta = (largura * 0.064).clamp(20.0, 28.0).toDouble();
@@ -2128,17 +2131,13 @@ class _HomePageState extends State<HomePage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Flexible(
-                                  child: Text(
-                                    produto.nome.toUpperCase(),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: const Color(0xFF111827),
-                                      fontSize: nomeSize,
-                                      height: 1.02,
-                                      fontWeight: FontWeight.w900,
-                                    ),
+                                Text(
+                                  produto.nome.toUpperCase(),
+                                  style: TextStyle(
+                                    color: const Color(0xFF111827),
+                                    fontSize: nomeSize,
+                                    height: 1.02,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
                                 if (exibirEstoque) ...[
@@ -2333,6 +2332,48 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  double alturaCarrosselSuperOfertas(
+    BuildContext context,
+    double larguraDisponivel,
+  ) {
+    const alturaBase = 198.0;
+    final larguraBanner = (larguraDisponivel - 38).clamp(1.0, double.infinity);
+    final larguraTexto = (larguraBanner * 0.56 - 16).clamp(
+      1.0,
+      double.infinity,
+    );
+    final nomeSize = (larguraBanner * 0.036).clamp(11.8, 14.4).toDouble();
+    final estiloNome = TextStyle(
+      fontSize: nomeSize,
+      height: 1.02,
+      fontWeight: FontWeight.w900,
+    );
+    final textScaler = MediaQuery.textScalerOf(context);
+
+    double medirAltura(String texto) {
+      final painter = TextPainter(
+        text: TextSpan(text: texto.toUpperCase(), style: estiloNome),
+        textDirection: TextDirection.ltr,
+        textScaler: textScaler,
+      )..layout(maxWidth: larguraTexto);
+
+      return painter.height;
+    }
+
+    final alturaUmaLinha = medirAltura('Produto');
+    var maiorAlturaNome = alturaUmaLinha;
+
+    for (final oferta in superOfertas) {
+      final alturaNome = medirAltura(oferta.produto.nome);
+
+      if (alturaNome > maiorAlturaNome) {
+        maiorAlturaNome = alturaNome;
+      }
+    }
+
+    return alturaBase + (maiorAlturaNome - alturaUmaLinha);
+  }
+
   Widget carrosselSuperOfertasHome() {
     if (carregandoOfertas && superOfertas.isEmpty) {
       return Container(
@@ -2356,45 +2397,54 @@ class _HomePageState extends State<HomePage> {
       return const SizedBox.shrink();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: 198,
-          child: PageView.builder(
-            controller: bannerController,
-            itemCount: superOfertas.length,
-            onPageChanged: (index) {
-              setState(() {
-                bannerAtual = index;
-              });
-            },
-            itemBuilder: (context, index) {
-              return superOfertaBanner(superOfertas[index]);
-            },
-          ),
-        ),
-        if (superOfertas.length > 1) ...[
-          const SizedBox(height: 5),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(superOfertas.length, (index) {
-              final ativo = bannerAtual == index;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final altura = alturaCarrosselSuperOfertas(
+          context,
+          constraints.maxWidth,
+        );
 
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                width: ativo ? 8 : 6,
-                height: ativo ? 8 : 6,
-                decoration: BoxDecoration(
-                  color: ativo ? corPrimariaAtual : Colors.grey.shade300,
-                  shape: BoxShape.circle,
-                ),
-              );
-            }),
-          ),
-        ],
-      ],
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: altura,
+              child: PageView.builder(
+                controller: bannerController,
+                itemCount: superOfertas.length,
+                onPageChanged: (index) {
+                  setState(() {
+                    bannerAtual = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  return superOfertaBanner(superOfertas[index]);
+                },
+              ),
+            ),
+            if (superOfertas.length > 1) ...[
+              const SizedBox(height: 5),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(superOfertas.length, (index) {
+                  final ativo = bannerAtual == index;
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: ativo ? 8 : 6,
+                    height: ativo ? 8 : 6,
+                    decoration: BoxDecoration(
+                      color: ativo ? corPrimariaAtual : Colors.grey.shade300,
+                      shape: BoxShape.circle,
+                    ),
+                  );
+                }),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 

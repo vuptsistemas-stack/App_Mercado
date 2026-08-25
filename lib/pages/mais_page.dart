@@ -79,6 +79,18 @@ class MaisPage extends StatelessWidget {
     ], fallback: 'Mercado Online');
   }
 
+  String logoLoja() {
+    return primeiroTexto([
+      lojaConfiguracoes['logo_url'],
+      lojaConfiguracoes['logo_login_url'],
+      lojaConfiguracoes['app_logo_url'],
+      sessao.SessaoMercadoCliente.logoUrl,
+      dadosLoja['logo_url'],
+      dadosLoja['logo_login_url'],
+      dadosLoja['app_logo_url'],
+    ]);
+  }
+
   String whatsappLoja() {
     return primeiroTexto([
       lojaConfiguracoes['whatsapp'],
@@ -402,15 +414,12 @@ class MaisPage extends StatelessWidget {
           Container(
             width: 52,
             height: 52,
+            padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: AppTemaService.primaria.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(
-              Icons.storefront_outlined,
-              color: AppTemaService.primaria,
-              size: 28,
-            ),
+            child: logoCabecalho(),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -441,6 +450,31 @@ class MaisPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget logoCabecalho() {
+    final logoUrl = logoLoja();
+
+    Widget fallback() {
+      return Icon(
+        Icons.storefront_outlined,
+        color: AppTemaService.primaria,
+        size: 28,
+      );
+    }
+
+    if (!urlHttpValida(logoUrl)) {
+      return fallback();
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.network(
+        logoUrl,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => fallback(),
       ),
     );
   }

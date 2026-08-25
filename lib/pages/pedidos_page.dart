@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -5,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
 import '../services/historico_notificacoes_pedido_service.dart';
+import '../services/imagem_service.dart';
 import '../services/push_notification_service.dart';
 import '../utils/mensagem_erro.dart';
 
@@ -356,6 +358,18 @@ class PedidosPageState extends State<PedidosPage> {
     }
 
     return null;
+  }
+
+  List<Map<String, dynamic>> get demaisPedidos {
+    final idPedidoAtual = pedidoAtual?['id']?.toString().trim() ?? '';
+
+    if (idPedidoAtual.isEmpty) {
+      return pedidos;
+    }
+
+    return pedidos
+        .where((pedido) => pedido['id']?.toString().trim() != idPedidoAtual)
+        .toList();
   }
 
   String formatarMoeda(dynamic valor) {
@@ -1212,7 +1226,7 @@ class PedidosPageState extends State<PedidosPage> {
                       child: Center(child: Text('Nenhum pedido encontrado')),
                     )
                   else
-                    ...pedidos.map(pedidoCard),
+                    ...demaisPedidos.map(pedidoCard),
                 ],
               ),
             ),
@@ -1234,6 +1248,7 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
   bool carregando = true;
   bool cancelandoPedido = false;
   List<Map<String, dynamic>> itens = [];
+  final Map<String, Future<String?>> imagensItens = {};
 
   @override
   void initState() {
@@ -2136,14 +2151,7 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
                   : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              pesoVariavel
-                  ? Icons.scale_outlined
-                  : Icons.shopping_basket_outlined,
-              color: pesoVariavel
-                  ? const Color(0xFFFFA000)
-                  : AppTemaService.primaria,
-            ),
+            child: imagemItemPedido(item, pesoVariavel: pesoVariavel),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2273,6 +2281,74 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget imagemItemPedido(
+    Map<String, dynamic> item, {
+    required bool pesoVariavel,
+  }) {
+    final ean = (item['ean'] ?? item['ean_principal'] ?? '').toString().trim();
+    final nomeProduto = (item['nome_produto'] ?? '').toString().trim();
+    final imagemCadastro = (item['imagem_url'] ?? item['imagemUrl'] ?? '')
+        .toString()
+        .trim();
+    final chave = item['id']?.toString().trim().isNotEmpty == true
+        ? 'id:${item['id']}'
+        : 'produto:$ean:$nomeProduto';
+    final futureImagem = imagensItens.putIfAbsent(
+      chave,
+      () => ImagemService.buscarImagemProduto(
+        ean: ean,
+        nomeProduto: nomeProduto,
+        imagemUrlCadastroProdutoApp: imagemCadastro,
+      ),
+    );
+
+    Widget fallback() {
+      return Icon(
+        pesoVariavel ? Icons.scale_outlined : Icons.shopping_basket_outlined,
+        color: pesoVariavel ? const Color(0xFFFFA000) : AppTemaService.primaria,
+      );
+    }
+
+    return FutureBuilder<String?>(
+      future: futureImagem,
+      builder: (context, snapshot) {
+        final imagemUrl = snapshot.data?.trim() ?? '';
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: SizedBox(
+              width: 17,
+              height: 17,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+
+        if (imagemUrl.isEmpty) {
+          return fallback();
+        }
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: CachedNetworkImage(
+            imageUrl: imagemUrl,
+            width: 54,
+            height: 54,
+            fit: BoxFit.contain,
+            placeholder: (context, url) => const Center(
+              child: SizedBox(
+                width: 17,
+                height: 17,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            errorWidget: (context, url, error) => fallback(),
+          ),
+        );
+      },
     );
   }
 

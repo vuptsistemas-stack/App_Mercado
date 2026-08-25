@@ -574,6 +574,16 @@ class CarrinhoPageState extends State<CarrinhoPage> {
       return;
     }
 
+    final podeContinuar =
+        await LojaFuncionamentoService.podeAdicionarAoCarrinho(
+          context,
+          forcarAtualizacao: true,
+        );
+
+    if (!context.mounted || !podeContinuar) {
+      return;
+    }
+
     final itensComProblema = carrinho.itensComProblemaEstoque;
 
     if (itensComProblema.isNotEmpty) {
@@ -587,16 +597,6 @@ class CarrinhoPageState extends State<CarrinhoPage> {
     );
 
     if (!context.mounted || !pedidoMinimoOk) {
-      return;
-    }
-
-    final podeContinuar =
-        await LojaFuncionamentoService.podeAdicionarAoCarrinho(
-          context,
-          forcarAtualizacao: true,
-        );
-
-    if (!podeContinuar) {
       return;
     }
 
@@ -1061,25 +1061,22 @@ class CarrinhoPageState extends State<CarrinhoPage> {
     BuildContext context,
     Produto produto,
   ) async {
+    final podeAdicionar =
+        await LojaFuncionamentoService.podeAdicionarAoCarrinho(context);
+
+    if (!context.mounted || !podeAdicionar) {
+      return;
+    }
+
     final carrinho = context.read<CarrinhoController>();
-    if (produto.estoque <= 0 || !carrinho.podeAdicionarProduto(produto)) {
+
+    if (!carrinho.podeAdicionarProduto(produto)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Produto sem estoque disponível'),
           backgroundColor: AppTemaService.primaria,
         ),
       );
-      return;
-    }
-
-    final podeAdicionar =
-        await LojaFuncionamentoService.podeAdicionarAoCarrinho(context);
-
-    if (!podeAdicionar) {
-      return;
-    }
-
-    if (!context.mounted) {
       return;
     }
 
@@ -1298,7 +1295,8 @@ class CarrinhoPageState extends State<CarrinhoPage> {
                                         fontSize: 13,
                                       ),
                                     ),
-                                    avisoProblemaEstoque(item),
+                                    if (carrinho.bloquearVendaSemEstoque)
+                                      avisoProblemaEstoque(item),
                                   ],
                                 ),
                               ),
