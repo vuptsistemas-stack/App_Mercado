@@ -123,10 +123,12 @@ class MonitorStatusPedidosClienteService {
 
     if (!notificar || anterior == null) return;
 
-    await NotificacaoStatusPedidoService.instance.statusAlterado(
-      numeroPedido: pedido['numero_pedido']?.toString() ?? '',
-      status: _textoStatus(novoStatus),
-    );
+    if (!PushNotificationService.instance.pushAtivo) {
+      await NotificacaoStatusPedidoService.instance.statusAlterado(
+        numeroPedido: pedido['numero_pedido']?.toString() ?? '',
+        status: _textoStatus(novoStatus),
+      );
+    }
   }
 
   String _chavePersistencia() =>

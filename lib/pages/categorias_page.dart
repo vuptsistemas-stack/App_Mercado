@@ -6,12 +6,18 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/app_tema_service.dart';
 import '../services/categoria_imagem_service.dart';
+import '../utils/mensagem_erro.dart';
 import 'produtos_categoria_page.dart';
 
 class CategoriasPage extends StatefulWidget {
   final VoidCallback? onVoltarInicio;
+  final VoidCallback? onAbrirCarrinho;
 
-  const CategoriasPage({super.key, this.onVoltarInicio});
+  const CategoriasPage({
+    super.key,
+    this.onVoltarInicio,
+    this.onAbrirCarrinho,
+  });
 
   @override
   State<CategoriasPage> createState() => _CategoriasPageState();
@@ -64,7 +70,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
         categoriaSelecionada = 'Todos';
         carregando = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
 
       setState(() {
@@ -73,6 +79,19 @@ class _CategoriasPageState extends State<CategoriasPage> {
         categoriaSelecionada = null;
         carregando = false;
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível carregar as categorias. Tente novamente.',
+            ),
+          ),
+          backgroundColor: corPrimaria,
+        ),
+      );
     }
   }
 
@@ -373,6 +392,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
         mostrarAppBar: false,
         mostrarBusca: false,
         buscaProduto: buscaProdutoAtual,
+        onAbrirCarrinho: widget.onAbrirCarrinho,
       ),
     );
   }

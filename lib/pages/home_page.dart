@@ -13,21 +13,22 @@ import '../services/categoria_imagem_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../services/ofertas_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 import 'carrinho_page.dart';
-import 'categorias_page.dart';
-import 'produtos_categoria_page.dart';
 import '../services/app_tema_service.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? abrirCategorias;
   final void Function(String categoria)? abrirCategoria;
   final VoidCallback? abrirConta;
+  final VoidCallback? abrirCarrinho;
 
   const HomePage({
     super.key,
     this.abrirCategorias,
     this.abrirCategoria,
     this.abrirConta,
+    this.abrirCarrinho,
   });
 
   @override
@@ -69,6 +70,19 @@ class _HomePageState extends State<HomePage> {
 
   static const Color vermelho = Color(0xFFE30613);
   static const Color fundo = Color(0xFFF5F5F5);
+
+  void _abrirCarrinho() {
+    final callback = widget.abrirCarrinho;
+    if (callback != null) {
+      callback();
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
+    );
+  }
 
   @override
   void initState() {
@@ -168,13 +182,17 @@ class _HomePageState extends State<HomePage> {
         'APP_MERCADO HOME: carregou ${listaProdutos.length} produto(s) '
         'com ${produtosMaisVendidos.length} mais vendido(s) no topo',
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
 
       setState(() {
         produtos = [];
         temMais = false;
-        mensagem = 'Erro ao carregar produtos';
+        mensagem = mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível carregar os produtos. Tente novamente.',
+        );
       });
     } finally {
       if (!mounted) return;
@@ -554,13 +572,17 @@ class _HomePageState extends State<HomePage> {
             ? 'Nenhum produto encontrado'
             : '';
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
 
       setState(() {
         produtos = [];
         temMais = false;
-        mensagem = 'Erro ao buscar produtos';
+        mensagem = mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível buscar os produtos. Tente novamente.',
+        );
       });
     } finally {
       if (!mounted) return;
@@ -583,6 +605,7 @@ class _HomePageState extends State<HomePage> {
           exibirEstoque: exibirEstoque,
           bloquearVendaSemEstoque: bloquearVendaSemEstoque,
           buscaInicial: buscaController.text.trim(),
+          onAbrirCarrinho: widget.abrirCarrinho,
         ),
       ),
     );
@@ -728,7 +751,11 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         produtos = [];
         temMais = false;
-        mensagem = 'Erro ao carregar produtos de $categoria';
+        mensagem = mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível carregar os produtos de $categoria. Tente novamente.',
+        );
       });
 
       debugPrint('HOME ERRO AO FILTRAR CATEGORIA $categoria: $e');
@@ -1267,12 +1294,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 6),
                 botaoAcaoProduto(
                   icon: Icons.shopping_cart,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
-                    );
-                  },
+                  onTap: _abrirCarrinho,
                   backgroundColor: Colors.white,
                   iconColor: corPrimariaAtual,
                   size: 27,
@@ -1583,13 +1605,7 @@ class _HomePageState extends State<HomePage> {
                                       onTap: () {
                                         Navigator.pop(context);
 
-                                        Navigator.push(
-                                          this.context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const CarrinhoPage(),
-                                          ),
-                                        );
+                                        _abrirCarrinho();
                                       },
                                       backgroundColor: Colors.white,
                                       iconColor: corPrimariaAtual,
@@ -2539,12 +2555,7 @@ class _HomePageState extends State<HomePage> {
             onBuscaChanged: (_) {},
             onBuscaTap: abrirPaginaPesquisa,
             onScannerTap: abrirPaginaPesquisa,
-            onCarrinhoTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CarrinhoPage()),
-              );
-            },
+            onCarrinhoTap: _abrirCarrinho,
             onContaTap: () {
               if (widget.abrirConta != null) {
                 widget.abrirConta!();
@@ -2702,6 +2713,7 @@ class PesquisaProdutosPage extends StatefulWidget {
   final bool exibirEstoque;
   final bool bloquearVendaSemEstoque;
   final String buscaInicial;
+  final VoidCallback? onAbrirCarrinho;
 
   const PesquisaProdutosPage({
     super.key,
@@ -2710,6 +2722,7 @@ class PesquisaProdutosPage extends StatefulWidget {
     required this.exibirEstoque,
     required this.bloquearVendaSemEstoque,
     this.buscaInicial = '',
+    this.onAbrirCarrinho,
   });
 
   @override
@@ -2720,6 +2733,20 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
   final TextEditingController buscaController = TextEditingController();
   final ScrollController scrollController = ScrollController();
   final Map<String, Future<String?>> _cacheImagemProduto = {};
+
+  void _abrirCarrinho() {
+    final callback = widget.onAbrirCarrinho;
+    if (callback != null) {
+      Navigator.pop(context);
+      callback();
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
+    );
+  }
 
   List<Produto> produtos = [];
   bool carregando = false;
@@ -2821,13 +2848,17 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
             ? 'Nenhum produto encontrado'
             : '';
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
 
       setState(() {
         produtos = [];
         temMais = false;
-        mensagem = 'Erro ao buscar produtos';
+        mensagem = mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível buscar os produtos. Tente novamente.',
+        );
       });
     } finally {
       if (!mounted) return;
@@ -3119,12 +3150,7 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
                   icon: Icons.shopping_cart,
                   backgroundColor: Colors.white,
                   iconColor: widget.corPrimaria,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
-                    );
-                  },
+                  onTap: _abrirCarrinho,
                 ),
               ],
             ),
@@ -3448,13 +3474,7 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
                                       icon: Icons.shopping_cart,
                                       onTap: () {
                                         Navigator.pop(context);
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const CarrinhoPage(),
-                                          ),
-                                        );
+                                        _abrirCarrinho();
                                       },
                                       backgroundColor: Colors.white,
                                       iconColor: widget.corPrimaria,

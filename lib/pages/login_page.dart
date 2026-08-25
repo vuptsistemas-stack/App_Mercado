@@ -7,6 +7,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 import 'cadastro_cliente_page.dart';
 import 'recuperar_senha_page.dart';
 import '../services/app_tema_service.dart';
@@ -70,7 +71,13 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      mostrarMensagem('Erro ao iniciar login: $e', erro: true);
+      mostrarMensagem(
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao: 'Não foi possível iniciar o login. Tente novamente.',
+        ),
+        erro: true,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -142,10 +149,17 @@ class _LoginPageState extends State<LoginPage> {
       mostrarMensagem('Não foi possível entrar com a Apple.', erro: true);
     } on AuthException catch (e) {
       if (!mounted) return;
-      mostrarMensagem(e.message, erro: true);
+      mostrarMensagem(mensagemErroAutenticacao(e), erro: true);
     } catch (e) {
       if (!mounted) return;
-      mostrarMensagem('Erro ao entrar com a Apple: $e', erro: true);
+      mostrarMensagem(
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível entrar com a Apple. Tente novamente.',
+        ),
+        erro: true,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -185,10 +199,16 @@ class _LoginPageState extends State<LoginPage> {
       );
     } on AuthException catch (e) {
       if (!mounted) return;
-      mostrarMensagem(e.message, erro: true);
+      mostrarMensagem(mensagemErroAutenticacao(e), erro: true);
     } catch (e) {
       if (!mounted) return;
-      mostrarMensagem('Erro ao entrar: $e', erro: true);
+      mostrarMensagem(
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao: 'Não foi possível entrar. Tente novamente.',
+        ),
+        erro: true,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -230,10 +250,16 @@ class _LoginPageState extends State<LoginPage> {
       );
     } on AuthException catch (e) {
       if (!mounted) return;
-      mostrarMensagem(e.message, erro: true);
+      mostrarMensagem(mensagemErroAutenticacao(e), erro: true);
     } catch (e) {
       if (!mounted) return;
-      mostrarMensagem('Erro ao criar conta: $e', erro: true);
+      mostrarMensagem(
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao: 'Não foi possível criar a conta. Tente novamente.',
+        ),
+        erro: true,
+      );
     } finally {
       if (mounted) {
         setState(() {

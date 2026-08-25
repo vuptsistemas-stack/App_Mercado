@@ -11,8 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../controllers/carrinho_controller.dart';
 import '../services/app_tema_service.dart';
+import '../services/cupom_desconto_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../services/push_notification_service.dart';
+import '../utils/mensagem_erro.dart';
 import 'main_navigation_page.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 
@@ -324,6 +326,11 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
       return 0;
     }
 
+    final descontoValidado = numero(cupomAplicado!['valor_desconto']);
+    if (descontoValidado > 0) {
+      return descontoValidado > subtotal ? subtotal : descontoValidado;
+    }
+
     final tipo = (cupomAplicado!['tipo'] ?? 'valor')
         .toString()
         .trim()
@@ -361,8 +368,12 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
 
     final codigo = cupomAplicado!['codigo']?.toString() ?? '';
     final desconto = calcularDescontoCupom(subtotal);
+    final descricaoEscopo =
+        cupomAplicado!['descricao_escopo']?.toString().trim() ?? '';
 
-    return 'Cupom $codigo aplicado: -${formatarMoeda(desconto)}';
+    return descricaoEscopo.isEmpty || descricaoEscopo == 'pedido inteiro'
+        ? 'Cupom $codigo aplicado: -${formatarMoeda(desconto)}'
+        : 'Cupom $codigo aplicado em $descricaoEscopo: -${formatarMoeda(desconto)}';
   }
 
   void removerCupom() {
@@ -390,47 +401,16 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
     });
 
     try {
-      final resposta = await Supabase.instance.client
-          .from('cupons_desconto')
-          .select()
-          .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
-          .eq('codigo', codigo)
-          .maybeSingle();
-
-      if (resposta == null) {
-        throw Exception('Cupom não encontrado.');
-      }
-
-      final cupom = Map<String, dynamic>.from(resposta);
-
-      if (!valorBool(cupom['ativo'], true)) {
-        throw Exception('Este cupom está inativo.');
-      }
-
-      if (!cupomDentroDoPeriodo(cupom)) {
-        throw Exception('Este cupom não está disponível no momento.');
-      }
-
-      final valorMinimo = numero(cupom['valor_minimo']);
-
-      if (valorMinimo > 0 && subtotal < valorMinimo) {
-        throw Exception(
-          'Este cupom é válido para pedidos acima de ${formatarMoeda(valorMinimo)}.',
-        );
-      }
-
-      final limiteUso = numero(cupom['limite_uso']).round();
-      final quantidadeUsada = numero(cupom['quantidade_usada']).round();
-
-      if (limiteUso > 0 && quantidadeUsada >= limiteUso) {
-        throw Exception('Este cupom atingiu o limite de uso.');
-      }
+      final carrinho = context.read<CarrinhoController>();
+      final cupom = await CupomDescontoService.instance.validar(
+        codigo: codigo,
+        itens: carrinho.itens,
+      );
 
       if (!mounted) return;
 
       setState(() {
         cupomAplicado = cupom;
-        cupomAplicado!['codigo'] = codigo;
         mensagemCupom = textoDescontoCupom(subtotal);
       });
     } catch (e) {
@@ -438,7 +418,10 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
 
       setState(() {
         cupomAplicado = null;
-        mensagemCupom = e.toString().replaceFirst('Exception: ', '');
+        mensagemCupom = mensagemErroAmigavel(
+          e,
+          mensagemPadrao: e.toString().replaceFirst('Exception: ', ''),
+        );
       });
     } finally {
       if (mounted) {
@@ -1160,9 +1143,17 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao calcular endereço: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível calcular o endereço. Tente novamente.',
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -1270,9 +1261,17 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao pegar localização: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível obter sua localização. Verifique a permissão de localização e tente novamente.',
+            ),
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -1452,6 +1451,14 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
       final entregaLatitude = calculoFrete['latitude'] as double?;
       final entregaLongitude = calculoFrete['longitude'] as double?;
 
+      if (cupomAplicado != null) {
+        cupomAplicado = await CupomDescontoService.instance.validar(
+          codigo: cupomAplicado!['codigo']?.toString() ?? '',
+          itens: carrinho.itens,
+        );
+        mensagemCupom = textoDescontoCupom(carrinho.valorTotal);
+      }
+
       final descontoCupom = calcularDescontoCupom(carrinho.valorTotal);
       final totalPedido =
           carrinho.valorTotal + taxaEntregaCalculada - descontoCupom;
@@ -1579,6 +1586,9 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
           'produto_id': produto.produtoId,
           'nome_produto': produto.nome,
           'ean': produto.ean,
+          'categoria': produto.categoria.trim().isEmpty
+              ? null
+              : produto.categoria.trim(),
           'quantidade': item.quantidade,
           'preco_unitario': produto.preco,
           'total': item.total,
@@ -1616,20 +1626,13 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
 
       if (cupomAplicado != null && cupomAplicado?['id'] != null) {
         try {
-          final quantidadeAtual = numero(
-            cupomAplicado?['quantidade_usada'],
-          ).round();
-
-          await Supabase.instance.client
-              .from('cupons_desconto')
-              .update({'quantidade_usada': quantidadeAtual + 1})
-              .eq('id', cupomAplicado!['id'])
-              .eq(
-                'mercado_id',
-                sessao.SessaoMercadoCliente.mercadoIdObrigatorio,
-              );
-        } catch (_) {
-          // Não bloqueia o pedido caso a política do banco não permita atualizar o cupom pelo app.
+          await CupomDescontoService.instance.validar(
+            codigo: cupomAplicado!['codigo']?.toString() ?? '',
+            itens: carrinho.itens,
+            confirmarUso: true,
+          );
+        } catch (e) {
+          debugPrint('Não foi possível registrar o uso do cupom: $e');
         }
       }
 
@@ -1654,9 +1657,17 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao finalizar pedido: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível finalizar o pedido. Tente novamente.',
+            ),
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -2391,8 +2402,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
                 childrenPadding: EdgeInsets.zero,
                 iconColor: corPrimaria,
                 collapsedIconColor: corPrimaria,
-                initiallyExpanded:
-                    tipoEntrega == 'outro_endereco',
+                initiallyExpanded: tipoEntrega == 'outro_endereco',
                 title: const Text(
                   'Mais opções',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),

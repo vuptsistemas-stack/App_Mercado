@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main_navigation_page.dart';
 import '../services/app_tema_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 
 class CompletarCadastroPage extends StatefulWidget {
   const CompletarCadastroPage({super.key});
@@ -188,16 +189,20 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => const MainNavigationPage(),
-        ),
+        MaterialPageRoute(builder: (_) => const MainNavigationPage()),
       );
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro ao salvar cadastro: $e'),
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível salvar o cadastro. Tente novamente.',
+            ),
+          ),
         ),
       );
     } finally {
@@ -262,10 +267,7 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
         keyboardType: tipo,
         inputFormatters: inputFormatters,
         textInputAction: TextInputAction.next,
-        style: TextStyle(
-          color: corTexto,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: corTexto, fontWeight: FontWeight.w600),
         decoration: decoracaoCampo(
           label: label,
           icon: icon,
@@ -291,7 +293,10 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppTemaService.primaria.withValues(alpha: 0.16), width: 1.6),
+              border: Border.all(
+                color: AppTemaService.primaria.withValues(alpha: 0.16),
+                width: 1.6,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: AppTemaService.primaria.withValues(alpha: 0.08),
@@ -341,10 +346,8 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
                     child: ListView.separated(
                       padding: EdgeInsets.zero,
                       itemCount: estadosBrasil.length,
-                      separatorBuilder: (_, __) => Divider(
-                        height: 1,
-                        color: Color(0xFFF4EEEE),
-                      ),
+                      separatorBuilder: (_, __) =>
+                          Divider(height: 1, color: Color(0xFFF4EEEE)),
                       itemBuilder: (context, index) {
                         final estado = estadosBrasil[index];
                         final uf = estado['uf']!;
@@ -381,10 +384,7 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
                             ),
                           ),
                           trailing: ativo
-                              ? Icon(
-                                  Icons.check_circle,
-                                  color: corPrimaria,
-                                )
+                              ? Icon(Icons.check_circle, color: corPrimaria)
                               : null,
                           onTap: () => Navigator.pop(context, uf),
                         );
@@ -425,20 +425,20 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
         borderRadius: BorderRadius.circular(18),
         onTap: abrirSeletorEstado,
         child: InputDecorator(
-          decoration: decoracaoCampo(
-            label: 'Estado',
-            icon: Icons.public,
-          ).copyWith(
-            suffixIcon: Icon(
-              Icons.keyboard_arrow_down_rounded,
-              color: Color(0xFF7A6161),
-            ),
-          ),
+          decoration: decoracaoCampo(label: 'Estado', icon: Icons.public)
+              .copyWith(
+                suffixIcon: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: Color(0xFF7A6161),
+                ),
+              ),
           child: Text(
             textoSelecionado,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: estadoSelecionado == null ? const Color(0xFFB5A6A6) : corTexto,
+              color: estadoSelecionado == null
+                  ? const Color(0xFFB5A6A6)
+                  : corTexto,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -446,7 +446,6 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
       ),
     );
   }
-
 
   Future<void> voltarTelaAnterior() async {
     if (salvando) {
@@ -514,10 +513,7 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
                       color: Colors.white.withValues(alpha: 0.28),
                     ),
                   ),
-                  child: Icon(
-                    Icons.person_add_alt_1,
-                    color: Colors.white,
-                  ),
+                  child: Icon(Icons.person_add_alt_1, color: Colors.white),
                 ),
                 SizedBox(width: 12),
                 const Expanded(
@@ -632,15 +628,9 @@ class _CompletarCadastroPageState extends State<CompletarCadastroPage> {
             label: 'Número',
             icon: Icons.home,
             tipo: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-            ],
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           ),
-          campo(
-            controller: bairroController,
-            label: 'Bairro',
-            icon: Icons.map,
-          ),
+          campo(controller: bairroController, label: 'Bairro', icon: Icons.map),
           campo(
             controller: cidadeController,
             label: 'Cidade',

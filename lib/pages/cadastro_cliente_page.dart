@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 import 'main_navigation_page.dart';
 import '../services/app_tema_service.dart';
 
@@ -89,15 +90,11 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
     return Color(numero);
   }
 
-  Color get corPrimaria => corHex(
-        sessao.SessaoMercadoCliente.clienteCorPrimaria,
-        vermelhoPadrao,
-      );
+  Color get corPrimaria =>
+      corHex(sessao.SessaoMercadoCliente.clienteCorPrimaria, vermelhoPadrao);
 
-  Color get corFundo => corHex(
-        sessao.SessaoMercadoCliente.clienteCorFundo,
-        fundoPadrao,
-      );
+  Color get corFundo =>
+      corHex(sessao.SessaoMercadoCliente.clienteCorFundo, fundoPadrao);
 
   String somenteNumeros(String valor) {
     return valor.replaceAll(RegExp(r'[^0-9]'), '');
@@ -177,14 +174,10 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
-          constraints: const BoxConstraints(
-            maxHeight: 430,
-          ),
+          constraints: const BoxConstraints(maxHeight: 430),
           decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(28),
-            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: SafeArea(
             top: false,
@@ -240,9 +233,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
                                     width: 42,
                                     height: 42,
                                     decoration: BoxDecoration(
-                                      color: ativo
-                                          ? corPrimaria
-                                          : Colors.white,
+                                      color: ativo ? corPrimaria : Colors.white,
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: ativo
@@ -349,10 +340,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
     }
 
     if (senha != confirmarSenha) {
-      mostrarMensagem(
-        'A confirmação de senha não confere.',
-        erro: true,
-      );
+      mostrarMensagem('A confirmação de senha não confere.', erro: true);
       return;
     }
 
@@ -364,11 +352,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       final resposta = await Supabase.instance.client.auth.signUp(
         email: email,
         password: senha,
-        data: {
-          'full_name': nome,
-          'nome': nome,
-          'telefone': telefone,
-        },
+        data: {'full_name': nome, 'nome': nome, 'telefone': telefone},
       );
 
       final user = resposta.user ?? Supabase.instance.client.auth.currentUser;
@@ -419,17 +403,22 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
 
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(
-          builder: (_) => const MainNavigationPage(),
-        ),
+        MaterialPageRoute(builder: (_) => const MainNavigationPage()),
         (_) => false,
       );
     } on AuthException catch (e) {
       if (!mounted) return;
-      mostrarMensagem(e.message, erro: true);
+      mostrarMensagem(mensagemErroAutenticacao(e), erro: true);
     } catch (e) {
       if (!mounted) return;
-      mostrarMensagem('Erro ao cadastrar: $e', erro: true);
+      mostrarMensagem(
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível concluir o cadastro. Tente novamente.',
+        ),
+        erro: true,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -449,10 +438,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
     return InputDecoration(
       labelText: obrigatorio ? '$label *' : label,
       hintText: hint,
-      prefixIcon: Icon(
-        icon,
-        color: corPrimaria,
-      ),
+      prefixIcon: Icon(icon, color: corPrimaria),
       suffixIcon: suffixIcon,
       labelStyle: const TextStyle(
         color: Color(0xFF6B7280),
@@ -464,22 +450,14 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       ),
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 15,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(
-          color: Colors.black.withOpacity(0.10),
-        ),
+        borderSide: BorderSide(color: Colors.black.withOpacity(0.10)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(
-          color: corPrimaria,
-          width: 1.5,
-        ),
+        borderSide: BorderSide(color: corPrimaria, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -487,10 +465,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(
-          color: Colors.redAccent,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
       ),
     );
   }
@@ -536,10 +511,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
         onTap: salvando ? null : abrirSeletorEstado,
         borderRadius: BorderRadius.circular(16),
         child: InputDecorator(
-          decoration: decoracaoCampo(
-            label: 'Estado',
-            icon: Icons.map_outlined,
-          ),
+          decoration: decoracaoCampo(label: 'Estado', icon: Icons.map_outlined),
           child: Row(
             children: [
               Expanded(
@@ -570,11 +542,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       padding: const EdgeInsets.fromLTRB(2, 6, 2, 12),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: corPrimaria,
-            size: 20,
-          ),
+          Icon(icon, color: corPrimaria, size: 20),
           const SizedBox(width: 8),
           Text(
             titulo,
@@ -596,7 +564,10 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: AppTemaService.primaria.withValues(alpha: 0.16), width: 1.6),
+        border: Border.all(
+          color: AppTemaService.primaria.withValues(alpha: 0.16),
+          width: 1.6,
+        ),
         boxShadow: [
           BoxShadow(
             color: AppTemaService.primaria.withValues(alpha: 0.08),
@@ -613,27 +584,21 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
             label: 'Nome completo',
             icon: Icons.person_outline,
             tipo: TextInputType.name,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(80),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(80)],
           ),
           campo(
             controller: emailController,
             label: 'E-mail',
             icon: Icons.mail_outline,
             tipo: TextInputType.emailAddress,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(120),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(120)],
           ),
           campo(
             controller: senhaController,
             label: 'Senha',
             icon: Icons.lock_outline,
             obscureText: !senhaVisivel,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(32),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(32)],
             suffixIcon: IconButton(
               onPressed: salvando
                   ? null
@@ -655,9 +620,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
             label: 'Confirmar senha',
             icon: Icons.verified_user_outlined,
             obscureText: !confirmarSenhaVisivel,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(32),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(32)],
             suffixIcon: IconButton(
               onPressed: salvando
                   ? null
@@ -704,9 +667,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
             controller: enderecoController,
             label: 'Endereço',
             icon: Icons.home_outlined,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(120),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(120)],
           ),
           Row(
             children: [
@@ -730,9 +691,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
                   controller: bairroController,
                   label: 'Bairro',
                   icon: Icons.location_city_outlined,
-                  inputFormatters: [
-                    LengthLimitingTextInputFormatter(80),
-                  ],
+                  inputFormatters: [LengthLimitingTextInputFormatter(80)],
                 ),
               ),
             ],
@@ -741,9 +700,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
             controller: cidadeController,
             label: 'Cidade',
             icon: Icons.apartment_outlined,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(80),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(80)],
           ),
           campoEstado(),
           campo(
@@ -751,9 +708,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
             label: 'Referência',
             icon: Icons.pin_drop_outlined,
             obrigatorio: false,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(140),
-            ],
+            inputFormatters: [LengthLimitingTextInputFormatter(140)],
             hint: 'Ex: perto da praça',
           ),
           const SizedBox(height: 8),
@@ -803,10 +758,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 34),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            corPrimaria,
-            corPrimaria.withOpacity(0.78),
-          ],
+          colors: [corPrimaria, corPrimaria.withOpacity(0.78)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -828,9 +780,7 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.28),
-                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.28)),
                 ),
                 child: const Icon(
                   Icons.arrow_back_ios_new_rounded,
@@ -846,14 +796,9 @@ class _CadastroClientePageState extends State<CadastroClientePage> {
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.28),
-                ),
+                border: Border.all(color: Colors.white.withOpacity(0.28)),
               ),
-              child: const Icon(
-                Icons.person_add_alt_1,
-                color: Colors.white,
-              ),
+              child: const Icon(Icons.person_add_alt_1, color: Colors.white),
             ),
             const SizedBox(width: 12),
             Expanded(

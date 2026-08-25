@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
 import '../services/push_notification_service.dart';
+import '../utils/mensagem_erro.dart';
 
 String nomeMercado() {
   final nome = sessao.SessaoMercadoCliente.mercadoNome.trim();
@@ -296,7 +297,11 @@ class _PedidosPageState extends State<PedidosPage> {
       return 'Sua sessão expirou. Saia da conta e entre novamente para ver seus pedidos.';
     }
 
-    return 'Não foi possível carregar seus pedidos. Tente novamente.';
+    return mensagemErroAmigavel(
+      erro,
+      mensagemPadrao:
+          'Não foi possível carregar seus pedidos. Tente novamente.',
+    );
   }
 
   Map<String, dynamic>? get pedidoAtual {
@@ -571,7 +576,9 @@ class _PedidosPageState extends State<PedidosPage> {
       }
 
       final erro = e.toString().toLowerCase();
-      final mensagem = erro.contains('cancelar_pedido_cliente_app')
+      final mensagem = erroDeConexao(e)
+          ? mensagemSemInternet
+          : erro.contains('cancelar_pedido_cliente_app')
           ? 'A funcao de cancelamento ainda nao foi instalada no banco da loja.'
           : erro.contains('pedido nao pode mais ser cancelado') ||
                 erro.contains('pedido nÃ£o pode mais ser cancelado')
@@ -1277,7 +1284,9 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
       }
 
       final erro = e.toString().toLowerCase();
-      final mensagem = erro.contains('cancelar_pedido_cliente_app')
+      final mensagem = erroDeConexao(e)
+          ? mensagemSemInternet
+          : erro.contains('cancelar_pedido_cliente_app')
           ? 'A função de cancelamento ainda não foi instalada no banco da loja.'
           : erro.contains('pedido nao pode mais ser cancelado') ||
                 erro.contains('pedido não pode mais ser cancelado')

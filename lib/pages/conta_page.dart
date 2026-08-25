@@ -8,6 +8,7 @@ import '../services/app_tema_service.dart';
 import '../services/excluir_conta_service.dart';
 import '../services/lista_compras_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 
 class ContaPage extends StatefulWidget {
   final VoidCallback? onVoltar;
@@ -268,9 +269,19 @@ class _ContaPageState extends State<ContaPage> {
         context,
       ).showSnackBar(SnackBar(content: Text('Dados atualizados com sucesso')));
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao salvar dados: $e')));
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível salvar seus dados. Tente novamente.',
+            ),
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -291,7 +302,14 @@ class _ContaPageState extends State<ContaPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível sair: $e')),
+        SnackBar(
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao: 'Não foi possível sair. Tente novamente.',
+            ),
+          ),
+        ),
       );
     }
 
@@ -374,7 +392,11 @@ class _ContaPageState extends State<ContaPage> {
       }
 
       await _mostrarErroExclusao(
-        'Não foi possível excluir a conta: $e',
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível excluir a conta. Tente novamente mais tarde.',
+        ),
       );
     } finally {
       if (mounted) {
@@ -951,11 +973,7 @@ class _ContaPageState extends State<ContaPage> {
         children: [
           const Row(
             children: [
-              Icon(
-                Icons.shield_outlined,
-                color: Color(0xFFD32F2F),
-                size: 21,
-              ),
+              Icon(Icons.shield_outlined, color: Color(0xFFD32F2F), size: 21),
               SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1186,8 +1204,7 @@ class _ConfirmarExclusaoDialog extends StatefulWidget {
       _ConfirmarExclusaoDialogState();
 }
 
-class _ConfirmarExclusaoDialogState
-    extends State<_ConfirmarExclusaoDialog> {
+class _ConfirmarExclusaoDialogState extends State<_ConfirmarExclusaoDialog> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
 
@@ -1240,9 +1257,7 @@ class _ConfirmarExclusaoDialogState
     return PopScope(
       canPop: false,
       child: AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: const Text(
           'Confirmação final',
           textAlign: TextAlign.center,
@@ -1298,9 +1313,7 @@ class _ConfirmarExclusaoDialogState
             child: const Text('Cancelar'),
           ),
           FilledButton.icon(
-            onPressed: _habilitado && !_fechando
-                ? () => _fechar(true)
-                : null,
+            onPressed: _habilitado && !_fechando ? () => _fechar(true) : null,
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFD32F2F),
               foregroundColor: Colors.white,
@@ -1318,10 +1331,7 @@ class _AvisoExclusaoItem extends StatelessWidget {
   final IconData icon;
   final String texto;
 
-  const _AvisoExclusaoItem({
-    required this.icon,
-    required this.texto,
-  });
+  const _AvisoExclusaoItem({required this.icon, required this.texto});
 
   @override
   Widget build(BuildContext context) {
@@ -1337,11 +1347,7 @@ class _AvisoExclusaoItem extends StatelessWidget {
               color: const Color(0xFFD32F2F).withOpacity(0.08),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(
-              icon,
-              color: const Color(0xFFD32F2F),
-              size: 18,
-            ),
+            child: Icon(icon, color: const Color(0xFFD32F2F), size: 18),
           ),
           const SizedBox(width: 10),
           Expanded(

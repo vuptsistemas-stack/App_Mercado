@@ -11,6 +11,7 @@ import 'controllers/carrinho_controller.dart';
 import 'pages/auth_gate.dart';
 import 'services/push_notification_service.dart';
 import 'services/sessao_mercado_cliente.dart' as sessao;
+import 'utils/mensagem_erro.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(
@@ -45,13 +46,18 @@ void main() {
         debugPrint('APP_MERCADO EXCEPTION NO STARTUP: $e');
         debugPrint(stack.toString());
 
+        final falhaDeConexao = erroDeConexao(e);
+
         runApp(
           AppMercadoErroInicializacao(
             resultado: ResultadoInicializacaoMercado.erro(
-              titulo: 'Erro ao iniciar loja',
-              mensagem:
-                  'Não foi possível concluir a conexão inicial do aplicativo.',
-              detalhe: e.toString(),
+              titulo: falhaDeConexao ? 'Sem conexão' : 'Erro ao iniciar loja',
+              mensagem: mensagemErroAmigavel(
+                e,
+                mensagemPadrao:
+                    'Não foi possível iniciar o aplicativo. Tente novamente.',
+              ),
+              detalhe: falhaDeConexao ? '' : e.toString(),
             ),
           ),
         );
@@ -115,12 +121,17 @@ class _AppMercadoErroInicializacaoState
         return;
       }
 
+      final falhaDeConexao = erroDeConexao(e);
+
       setState(() {
         resultado = ResultadoInicializacaoMercado.erro(
-          titulo: 'Erro ao iniciar loja',
-          mensagem:
-              'Não foi possível concluir a conexão inicial do aplicativo.',
-          detalhe: e.toString(),
+          titulo: falhaDeConexao ? 'Sem conexão' : 'Erro ao iniciar loja',
+          mensagem: mensagemErroAmigavel(
+            e,
+            mensagemPadrao:
+                'Não foi possível iniciar o aplicativo. Tente novamente.',
+          ),
+          detalhe: falhaDeConexao ? '' : e.toString(),
         );
         tentandoNovamente = false;
       });
@@ -341,21 +352,26 @@ Future<ResultadoInicializacaoMercado> inicializarMercadoCliente({
     onStatus?.call('Loja carregada com sucesso.');
 
     return const ResultadoInicializacaoMercado.sucesso();
-  } on TimeoutException catch (e) {
+  } on TimeoutException {
     return ResultadoInicializacaoMercado.erro(
-      titulo: 'Tempo esgotado',
-      mensagem:
-          'A conexão demorou demais para responder. Veja o detalhe abaixo.',
-      detalhe: e.toString(),
+      titulo: 'Sem conexão',
+      mensagem: mensagemSemInternet,
+      detalhe: '',
     );
   } catch (e, stack) {
     debugPrint('APP_MERCADO EXCEPTION inicializarMercadoCliente(): $e');
     debugPrint(stack.toString());
 
+    final falhaDeConexao = erroDeConexao(e);
+
     return ResultadoInicializacaoMercado.erro(
-      titulo: 'Erro ao iniciar loja',
-      mensagem: 'Não foi possível iniciar o app conectado na Central.',
-      detalhe: e.toString(),
+      titulo: falhaDeConexao ? 'Sem conexão' : 'Erro ao iniciar loja',
+      mensagem: mensagemErroAmigavel(
+        e,
+        mensagemPadrao:
+            'Não foi possível iniciar o aplicativo. Tente novamente.',
+      ),
+      detalhe: falhaDeConexao ? '' : e.toString(),
     );
   }
 }

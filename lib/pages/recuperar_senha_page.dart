@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
+import '../utils/mensagem_erro.dart';
 
 class RecuperarSenhaPage extends StatefulWidget {
   final String emailInicial;
@@ -113,14 +114,18 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
         return;
       }
 
-      mostrarMensagem(e.message, erro: true);
+      mostrarMensagem(mensagemErroAutenticacao(e), erro: true);
     } catch (e) {
       if (!mounted) {
         return;
       }
 
       mostrarMensagem(
-        'Não foi possível enviar o link de recuperação: $e',
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível enviar o link de recuperação. Tente novamente.',
+        ),
         erro: true,
       );
     } finally {

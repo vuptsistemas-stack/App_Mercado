@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/mensagem_erro.dart';
+
 import '../services/sessao_mercado_cliente.dart' as sessao;
 
 class RedefinirSenhaPage extends StatefulWidget {
   final Future<void> Function() onConcluido;
 
-  const RedefinirSenhaPage({
-    super.key,
-    required this.onConcluido,
-  });
+  const RedefinirSenhaPage({super.key, required this.onConcluido});
 
   @override
   State<RedefinirSenhaPage> createState() => _RedefinirSenhaPageState();
@@ -106,10 +105,7 @@ class _RedefinirSenhaPageState extends State<RedefinirSenhaPage> {
               color: Color(0xFF0F9D58),
               size: 54,
             ),
-            title: const Text(
-              'Senha alterada',
-              textAlign: TextAlign.center,
-            ),
+            title: const Text('Senha alterada', textAlign: TextAlign.center),
             content: const Text(
               'Sua nova senha foi salva. Entre novamente para continuar.',
               textAlign: TextAlign.center,
@@ -135,10 +131,7 @@ class _RedefinirSenhaPageState extends State<RedefinirSenhaPage> {
         return;
       }
 
-      mostrarMensagem(
-        traduzirErroAuth(e.message),
-        erro: true,
-      );
+      mostrarMensagem(traduzirErroAuth(e.message), erro: true);
     } catch (e, stack) {
       debugPrint('APP_MERCADO RESET SENHA ERRO: $e');
       debugPrint(stack.toString());
@@ -161,6 +154,10 @@ class _RedefinirSenhaPageState extends State<RedefinirSenhaPage> {
   }
 
   String traduzirErroAuth(String mensagemOriginal) {
+    if (erroDeConexao(Exception(mensagemOriginal))) {
+      return mensagemSemInternet;
+    }
+
     final mensagem = mensagemOriginal.trim().toLowerCase();
 
     if (mensagem.contains('different from the old password') ||

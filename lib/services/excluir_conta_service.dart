@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/mensagem_erro.dart';
+
 class ResultadoExclusaoConta {
   final bool usuarioAuthExcluido;
   final bool possuiOutrosMercados;
@@ -24,8 +26,7 @@ class ResultadoExclusaoConta {
     return ResultadoExclusaoConta(
       usuarioAuthExcluido: map['usuario_auth_excluido'] == true,
       possuiOutrosMercados: map['possui_outros_mercados'] == true,
-      possuiVinculoFuncionario:
-          map['possui_vinculo_funcionario'] == true,
+      possuiVinculoFuncionario: map['possui_vinculo_funcionario'] == true,
       mensagem: _texto(map['mensagem']).isEmpty
           ? 'Sua conta neste mercado foi excluída.'
           : _texto(map['mensagem']),
@@ -75,13 +76,8 @@ class ExcluirContaService {
       final resposta = await client.functions
           .invoke(
             _nomeFuncao,
-            headers: {
-              'Authorization': 'Bearer ${session.accessToken}',
-            },
-            body: {
-              'mercado_id': mercadoIdLimpo,
-              'confirmacao': 'EXCLUIR',
-            },
+            headers: {'Authorization': 'Bearer ${session.accessToken}'},
+            body: {'mercado_id': mercadoIdLimpo, 'confirmacao': 'EXCLUIR'},
           )
           .timeout(const Duration(seconds: 35));
 
@@ -120,7 +116,11 @@ class ExcluirContaService {
       );
     } catch (e) {
       throw ExcluirContaException(
-        'Não foi possível excluir a conta: $e',
+        mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não foi possível excluir a conta. Tente novamente mais tarde.',
+        ),
         codigo: 'ERRO_INESPERADO',
       );
     }

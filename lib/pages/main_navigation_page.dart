@@ -102,20 +102,12 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     });
   }
 
-  void iniciarFinalizacaoRapida() {
+  void abrirCarrinhoParaRevisao() {
     setState(() {
       categoriaSelecionada = null;
       exibindoConta = false;
       exibindoFinalizarPedido = false;
       indexSelecionado = 2;
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-
-      carrinhoPageKey.currentState?.iniciarFinalizacao();
     });
   }
 
@@ -239,13 +231,18 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               abrirCategorias: abrirCategorias,
               abrirCategoria: abrirCategoria,
               abrirConta: abrirConta,
+              abrirCarrinho: abrirCarrinhoParaRevisao,
             )
           : ProdutosCategoriaPage(
               categoria: categoriaSelecionada!,
               mostrarAppBar: true,
               onVoltar: tratarBotaoVoltar,
+              onAbrirCarrinho: abrirCarrinhoParaRevisao,
             ),
-      CategoriasPage(onVoltarInicio: voltarParaInicio),
+      CategoriasPage(
+        onVoltarInicio: voltarParaInicio,
+        onAbrirCarrinho: abrirCarrinhoParaRevisao,
+      ),
       exibindoFinalizarPedido
           ? FinalizarPedidoPage(
               onVoltar: voltarParaCarrinho,
@@ -296,7 +293,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                       child: SizedBox(
                         height: 46,
                         child: ElevatedButton.icon(
-                          onPressed: iniciarFinalizacaoRapida,
+                          onPressed: abrirCarrinhoParaRevisao,
                           icon: const Icon(Icons.shopping_cart_checkout),
                           label: const Text('Finalizar compra'),
                           style: ElevatedButton.styleFrom(

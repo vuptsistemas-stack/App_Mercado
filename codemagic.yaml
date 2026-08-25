@@ -70,3 +70,234 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+
+  ios-mercado-testflight:
+    name: iOS Mercado - TestFlight automatico
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      groups:
+        - ios_signing
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Validar configuracao da loja
+        script: |
+          set -e
+          for var_name in BUNDLE_ID MERCADO_ID MERCADO_CODIGO APP_NAME FIREBASE_IOS_PLIST_BASE64; do
+            eval "var_value=\${$var_name:-}"
+            if [ -z "$var_value" ]; then
+              echo "Variavel obrigatoria ausente: $var_name"
+              exit 1
+            fi
+          done
+
+      - name: Flutter pub get
+        script: flutter pub get
+
+      - name: Aplicar identidade e Firebase iOS
+        script: |
+          set -e
+          printf '%s' "$FIREBASE_IOS_PLIST_BASE64" | base64 -D > ios/Runner/GoogleService-Info.plist
+
+          FIREBASE_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" ios/Runner/GoogleService-Info.plist)
+          if [ "$FIREBASE_BUNDLE_ID" != "$BUNDLE_ID" ]; then
+            echo "O Firebase iOS pertence a $FIREBASE_BUNDLE_ID, mas o build usa $BUNDLE_ID."
+            exit 1
+          fi
+
+          ruby <<'RUBY'
+          project_path = 'ios/Runner.xcodeproj/project.pbxproj'
+          bundle_id = ENV.fetch('BUNDLE_ID')
+          content = File.read(project_path)
+          content.gsub!(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/) do |line|
+            suffix = line.include?('RunnerTests') ? '.RunnerTests' : ''
+            "PRODUCT_BUNDLE_IDENTIFIER = #{bundle_id}#{suffix};"
+          end
+          File.write(project_path, content)
+          RUBY
+
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" ios/Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :aps-environment production" ios/Runner/Runner.entitlements || \
+            /usr/libexec/PlistBuddy -c "Add :aps-environment string production" ios/Runner/Runner.entitlements
+
+      - name: Personalizar icone e splash iOS
+        script: |
+          set -e
+          mkdir -p /tmp/vupt-ios-assets
+
+          if [ -n "${APP_ICON_URL:-}" ]; then
+            curl --fail --location --retry 3 "$APP_ICON_URL" -o /tmp/vupt-ios-assets/icon-original
+            sips -s format png /tmp/vupt-ios-assets/icon-original --out /tmp/vupt-ios-assets/icon.png >/dev/null
+            cat > /tmp/vupt-ios-assets/flutter_launcher_icons.yaml <<'YAML'
+          flutter_launcher_icons:
+            android: false
+            ios: true
+            image_path: /tmp/vupt-ios-assets/icon.png
+            remove_alpha_ios: true
+          YAML
+            dart run flutter_launcher_icons -f /tmp/vupt-ios-assets/flutter_launcher_icons.yaml
+          fi
+
+          if [ -n "${SPLASH_URL:-}" ]; then
+            curl --fail --location --retry 3 "$SPLASH_URL" -o /tmp/vupt-ios-assets/splash-original
+            sips -s format png /tmp/vupt-ios-assets/splash-original --out /tmp/vupt-ios-assets/splash.png >/dev/null
+            cat > /tmp/vupt-ios-assets/flutter_native_splash.yaml <<'YAML'
+          flutter_native_splash:
+            color: "#FFFFFF"
+            image: /tmp/vupt-ios-assets/splash.png
+            android: false
+            ios: true
+          YAML
+            dart run flutter_native_splash:create --path=/tmp/vupt-ios-assets/flutter_native_splash.yaml
+          fi
+
+      - name: Instalar pods iOS
+        script: |
+          cd ios
+          pod install
+
+      - name: Criar e configurar assinatura iOS
+        script: |
+          set -e
+          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            echo "A variavel CERTIFICATE_PRIVATE_KEY nao foi configurada no grupo ios_signing."
+            exit 1
+          fi
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key=@env:CERTIFICATE_PRIVATE_KEY \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build iOS release assinado
+        script: |
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=APP_PACKAGE="$BUNDLE_ID" \
+            --dart-define=MERCADO_ID="$MERCADO_ID" \
+            --dart-define=MERCADO_CODIGO="$MERCADO_CODIGO" \
+            --dart-define=APP_NAME="$APP_NAME" \
+            --dart-define=NOME_APP="$APP_NAME" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  android-mercado-internal:
+    name: Android Mercado - Google Play teste interno
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - android_signing
+        - google_play
+      flutter: stable
+      java: 17
+    scripts:
+      - name: Validar configuracao da loja
+        script: |
+          set -e
+          for var_name in ANDROID_PACKAGE MERCADO_ID MERCADO_CODIGO APP_NAME FIREBASE_ANDROID_JSON_BASE64 GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS; do
+            eval "var_value=\${$var_name:-}"
+            if [ -z "$var_value" ]; then
+              echo "Variavel obrigatoria ausente: $var_name"
+              exit 1
+            fi
+          done
+
+      - name: Flutter pub get
+        script: flutter pub get
+
+      - name: Aplicar identidade e Firebase Android
+        script: |
+          set -e
+          printf '%s' "$FIREBASE_ANDROID_JSON_BASE64" | base64 -D > android/app/google-services.json
+
+          ruby -rjson <<'RUBY'
+          config = JSON.parse(File.read('android/app/google-services.json'))
+          packages = config.fetch('client', []).map do |client|
+            client.dig('client_info', 'android_client_info', 'package_name')
+          end.compact
+          expected = ENV.fetch('ANDROID_PACKAGE')
+          abort "O Firebase Android nao contem o pacote #{expected}. Pacotes: #{packages.join(', ')}" unless packages.include?(expected)
+          RUBY
+
+      - name: Personalizar icone e splash Android
+        script: |
+          set -e
+          mkdir -p /tmp/vupt-android-assets
+
+          if [ -n "${APP_ICON_URL:-}" ]; then
+            curl --fail --location --retry 3 "$APP_ICON_URL" -o /tmp/vupt-android-assets/icon-original
+            sips -s format png /tmp/vupt-android-assets/icon-original --out /tmp/vupt-android-assets/icon.png >/dev/null
+            cat > /tmp/vupt-android-assets/flutter_launcher_icons.yaml <<'YAML'
+          flutter_launcher_icons:
+            android: true
+            ios: false
+            image_path: /tmp/vupt-android-assets/icon.png
+          YAML
+            dart run flutter_launcher_icons -f /tmp/vupt-android-assets/flutter_launcher_icons.yaml
+          fi
+
+          if [ -n "${SPLASH_URL:-}" ]; then
+            curl --fail --location --retry 3 "$SPLASH_URL" -o /tmp/vupt-android-assets/splash-original
+            sips -s format png /tmp/vupt-android-assets/splash-original --out /tmp/vupt-android-assets/splash.png >/dev/null
+            cat > /tmp/vupt-android-assets/flutter_native_splash.yaml <<'YAML'
+          flutter_native_splash:
+            color: "#FFFFFF"
+            image: /tmp/vupt-android-assets/splash.png
+            android: true
+            ios: false
+            android_12:
+              color: "#FFFFFF"
+              image: /tmp/vupt-android-assets/splash.png
+          YAML
+            dart run flutter_native_splash:create --path=/tmp/vupt-android-assets/flutter_native_splash.yaml
+          fi
+
+      - name: Configurar assinatura Android
+        script: |
+          set -e
+          for var_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            eval "var_value=\${$var_name:-}"
+            if [ -z "$var_value" ]; then
+              echo "Variavel obrigatoria ausente no grupo android_signing: $var_name"
+              exit 1
+            fi
+          done
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -D > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=app/upload-keystore.jks
+          EOF
+
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle --release \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=APP_PACKAGE="$ANDROID_PACKAGE" \
+            --dart-define=MERCADO_ID="$MERCADO_ID" \
+            --dart-define=MERCADO_CODIGO="$MERCADO_CODIGO" \
+            --dart-define=APP_NAME="$APP_NAME" \
+            --dart-define=NOME_APP="$APP_NAME"
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+    publishing:
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal

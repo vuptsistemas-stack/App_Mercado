@@ -32,7 +32,10 @@ class PushNotificationService {
   );
 
   bool escutandoAtualizacaoToken = false;
+  bool escutandoMensagensForeground = false;
+  bool pushAtivo = false;
   String ultimaChaveRegistrada = '';
+  final Map<String, DateTime> _mensagensForegroundProcessadas = {};
 
   Future<void> inicializarCliente() async {
     final clienteLoja = Supabase.instance.client;
@@ -58,6 +61,7 @@ class PushNotificationService {
         badge: false,
         sound: false,
       );
+      _escutarMensagensEmPrimeiroPlano();
 
       var token = await FirebaseMessaging.instance.getToken();
       if ((token ?? '').isEmpty && defaultTargetPlatform == TargetPlatform.iOS) {
@@ -67,17 +71,51 @@ class PushNotificationService {
 
       if ((token ?? '').isNotEmpty) {
         await _registrarToken(token!);
+        pushAtivo = true;
       }
 
       if (!escutandoAtualizacaoToken) {
         escutandoAtualizacaoToken = true;
         FirebaseMessaging.instance.onTokenRefresh.listen((novoToken) async {
-          await _registrarToken(novoToken);
+          try {
+            await _registrarToken(novoToken);
+            pushAtivo = true;
+          } catch (e) {
+            debugPrint('PUSH CLIENTE falhou ao renovar token: $e');
+          }
         });
       }
     } catch (e) {
+      pushAtivo = false;
       debugPrint('PUSH CLIENTE indisponivel: $e');
     }
+  }
+
+  void _escutarMensagensEmPrimeiroPlano() {
+    if (escutandoMensagensForeground) return;
+
+    escutandoMensagensForeground = true;
+    FirebaseMessaging.onMessage.listen((mensagem) async {
+      final evento = mensagem.data['evento']?.toString().toUpperCase() ?? '';
+      if (evento != 'STATUS_PEDIDO') return;
+
+      final pedidoId = mensagem.data['pedido_id']?.toString() ?? '';
+      final status = mensagem.data['status']?.toString().trim().toLowerCase() ?? '';
+      final chave = '$evento:$pedidoId:$status';
+      final agora = DateTime.now();
+
+      _mensagensForegroundProcessadas.removeWhere(
+        (_, horario) => agora.difference(horario) > const Duration(minutes: 2),
+      );
+
+      if (_mensagensForegroundProcessadas.containsKey(chave)) return;
+      _mensagensForegroundProcessadas[chave] = agora;
+
+      await NotificacaoStatusPedidoService.instance.statusAlterado(
+        numeroPedido: mensagem.data['numero_pedido']?.toString() ?? '',
+        status: _textoStatus(status),
+      );
+    });
   }
 
   Future<void> _registrarToken(String token) async {
@@ -150,4 +188,23 @@ class PushNotificationService {
   String get _plataforma => defaultTargetPlatform == TargetPlatform.iOS
       ? 'IOS'
       : 'ANDROID';
+
+  String _textoStatus(String status) {
+    switch (status) {
+      case 'novo':
+        return 'Aguardando aceite';
+      case 'aceito':
+        return 'Pedido aceito';
+      case 'preparando':
+        return 'Em preparacao';
+      case 'saiu_para_entrega':
+        return 'Saiu para entrega';
+      case 'entregue':
+        return 'Entregue';
+      case 'cancelado':
+        return 'Cancelado';
+      default:
+        return status;
+    }
+  }
 }

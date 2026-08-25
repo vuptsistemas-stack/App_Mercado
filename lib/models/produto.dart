@@ -9,6 +9,7 @@ class Produto {
   final double pesoMedioKg;
   final String produtoAppId;
   final String categoria;
+  final String subcategoria;
 
   /// Campo opcional para quando a API já retornar uma imagem.
   /// No fluxo atual, as imagens continuam vindo pelo ImagemService/Central.
@@ -25,6 +26,7 @@ class Produto {
     this.pesoMedioKg = 0,
     this.produtoAppId = '',
     this.categoria = '',
+    this.subcategoria = '',
     this.imagemUrl = '',
   });
 
@@ -96,6 +98,12 @@ class Produto {
             json['nome_grupo'] ??
             json['grupo'] ??
             json['categoria_nome'],
+      ),
+      subcategoria: _texto(
+        json['subcategoria'] ??
+            json['nome_subgrupo'] ??
+            json['subgrupo'] ??
+            json['subcategoria_nome'],
       ),
       imagemUrl: _texto(
         json['imagem_url'] ??
@@ -218,6 +226,7 @@ class Produto {
       'peso_medio_kg': pesoMedioKg,
       'produto_app_id': produtoAppId,
       'categoria': categoria,
+      'subcategoria': subcategoria,
       'imagem_url': imagemUrl,
     };
   }
@@ -233,6 +242,7 @@ class Produto {
     double? pesoMedioKg,
     String? produtoAppId,
     String? categoria,
+    String? subcategoria,
     String? imagemUrl,
   }) {
     return Produto(
@@ -246,6 +256,7 @@ class Produto {
       pesoMedioKg: pesoMedioKg ?? this.pesoMedioKg,
       produtoAppId: produtoAppId ?? this.produtoAppId,
       categoria: categoria ?? this.categoria,
+      subcategoria: subcategoria ?? this.subcategoria,
       imagemUrl: imagemUrl ?? this.imagemUrl,
     );
   }

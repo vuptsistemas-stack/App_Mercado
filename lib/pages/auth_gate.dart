@@ -12,6 +12,7 @@ import 'completar_cadastro_page.dart';
 import 'redefinir_senha_page.dart';
 import '../services/app_tema_service.dart';
 import '../services/loja_funcionamento_service.dart';
+import '../utils/mensagem_erro.dart';
 
 enum _DestinoAuth {
   carregando,
@@ -254,7 +255,7 @@ class _AuthGateState extends State<AuthGate> {
 
       setState(() {
         destino = _DestinoAuth.erro;
-        mensagemErro = e.message;
+        mensagemErro = mensagemSemInternet;
       });
     } on AuthException catch (e) {
       debugPrint('APP_MERCADO AUTH ERRO AUTH: ${e.message}');
@@ -272,8 +273,7 @@ class _AuthGateState extends State<AuthGate> {
 
         setState(() {
           destino = _DestinoAuth.erro;
-          mensagemErro =
-              'Nao conseguimos renovar sua sessao agora. Verifique sua conexao e tente novamente.';
+          mensagemErro = mensagemSemInternet;
         });
         return;
       }
@@ -286,7 +286,7 @@ class _AuthGateState extends State<AuthGate> {
 
       setState(() {
         destino = _DestinoAuth.login;
-        mensagemErro = e.message;
+        mensagemErro = mensagemErroAutenticacao(e);
       });
     } catch (e) {
       debugPrint('APP_MERCADO AUTH ERRO: $e');
@@ -304,16 +304,18 @@ class _AuthGateState extends State<AuthGate> {
 
         setState(() {
           destino = _DestinoAuth.erro;
-          mensagemErro =
-              'Nao conseguimos renovar sua sessao agora. Verifique sua conexao e tente novamente.';
+          mensagemErro = mensagemSemInternet;
         });
         return;
       }
 
       setState(() {
         destino = _DestinoAuth.erro;
-        mensagemErro =
-            'Não conseguimos validar seu cadastro agora. Verifique sua conexão e tente novamente.';
+        mensagemErro = mensagemErroAmigavel(
+          e,
+          mensagemPadrao:
+              'Não conseguimos validar seu cadastro agora. Tente novamente.',
+        );
       });
     } finally {
       verificando = false;

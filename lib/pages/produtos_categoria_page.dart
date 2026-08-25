@@ -11,6 +11,7 @@ import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
 import '../services/imagem_service.dart';
 import '../services/loja_funcionamento_service.dart';
+import '../utils/mensagem_erro.dart';
 import 'carrinho_page.dart';
 
 class ProdutosCategoriaPage extends StatefulWidget {
@@ -19,6 +20,7 @@ class ProdutosCategoriaPage extends StatefulWidget {
   final bool mostrarBusca;
   final String buscaProduto;
   final VoidCallback? onVoltar;
+  final VoidCallback? onAbrirCarrinho;
 
   const ProdutosCategoriaPage({
     super.key,
@@ -27,6 +29,7 @@ class ProdutosCategoriaPage extends StatefulWidget {
     this.mostrarBusca = true,
     this.buscaProduto = '',
     this.onVoltar,
+    this.onAbrirCarrinho,
   });
 
   @override
@@ -64,6 +67,19 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
 
   int pagina = 1;
   final int limite = 30;
+
+  void _abrirCarrinho() {
+    final callback = widget.onAbrirCarrinho;
+    if (callback != null) {
+      callback();
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
+    );
+  }
 
   @override
   void initState() {
@@ -207,7 +223,13 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro ao carregar produtos: $e'),
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível carregar os produtos. Tente novamente.',
+            ),
+          ),
           backgroundColor: corPrimaria,
         ),
       );
@@ -268,7 +290,13 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro ao carregar mais produtos: $e'),
+          content: Text(
+            mensagemErroAmigavel(
+              e,
+              mensagemPadrao:
+                  'Não foi possível carregar mais produtos. Tente novamente.',
+            ),
+          ),
           backgroundColor: corPrimaria,
         ),
       );
@@ -926,12 +954,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                 const SizedBox(width: 6),
                 botaoAcaoProduto(
                   icon: Icons.shopping_cart,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CarrinhoPage()),
-                    );
-                  },
+                  onTap: _abrirCarrinho,
                   backgroundColor: Colors.white,
                   iconColor: corPrimaria,
                   size: 27,
@@ -1240,12 +1263,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                                   onTap: () {
                                     Navigator.pop(context);
 
-                                    Navigator.push(
-                                      this.context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const CarrinhoPage(),
-                                      ),
-                                    );
+                                    _abrirCarrinho();
                                   },
                                   backgroundColor: Colors.white,
                                   iconColor: corPrimaria,
@@ -1403,12 +1421,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
           children: [
             IconButton(
               icon: const Icon(Icons.shopping_cart_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CarrinhoPage()),
-                );
-              },
+              onPressed: _abrirCarrinho,
             ),
             if (carrinho.quantidadeTotal > 0)
               Positioned(
