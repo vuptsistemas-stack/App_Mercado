@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
+import '../services/historico_notificacoes_pedido_service.dart';
 import '../services/push_notification_service.dart';
 import '../utils/mensagem_erro.dart';
 
@@ -54,25 +55,29 @@ bool statusPedidoPermiteCancelamentoCliente(dynamic valor) {
 
 class PedidosPage extends StatefulWidget {
   final VoidCallback? onVoltarInicio;
+  final ValueChanged<bool>? onDetalheAlterado;
 
-  const PedidosPage({super.key, this.onVoltarInicio});
+  const PedidosPage({super.key, this.onVoltarInicio, this.onDetalheAlterado});
 
   @override
-  State<PedidosPage> createState() => _PedidosPageState();
+  State<PedidosPage> createState() => PedidosPageState();
 }
 
-class _PedidosPageState extends State<PedidosPage> {
+class PedidosPageState extends State<PedidosPage> {
   bool carregando = true;
   List<Map<String, dynamic>> pedidos = [];
   RealtimeChannel? canalStatusPedidos;
   final Map<String, String> statusConhecidoPorPedido = {};
   String pedidoCancelandoId = '';
+  Map<String, dynamic>? pedidoEmDetalhe;
+  int notificacoesNaoLidas = 0;
 
   @override
   void initState() {
     super.initState();
     iniciarAvisosStatusPedido();
     carregarPedidos();
+    carregarContadorNotificacoes();
   }
 
   @override
@@ -106,9 +111,9 @@ class _PedidosPageState extends State<PedidosPage> {
             column: 'user_id',
             value: user.id,
           ),
-          callback: (payload) {
+          callback: (payload) async {
             final novoPedido = Map<String, dynamic>.from(payload.newRecord);
-            processarMudancaStatusPedido(novoPedido);
+            await processarMudancaStatusPedido(novoPedido);
           },
         )
         .subscribe();
@@ -126,7 +131,9 @@ class _PedidosPageState extends State<PedidosPage> {
     }
   }
 
-  void processarMudancaStatusPedido(Map<String, dynamic> pedidoAtualizado) {
+  Future<void> processarMudancaStatusPedido(
+    Map<String, dynamic> pedidoAtualizado,
+  ) async {
     if (!mounted) {
       return;
     }
@@ -156,13 +163,42 @@ class _PedidosPageState extends State<PedidosPage> {
       if (indice >= 0) {
         pedidos[indice] = {...pedidos[indice], ...pedidoAtualizado};
       }
+
+      if (pedidoEmDetalhe?['id']?.toString() == id) {
+        pedidoEmDetalhe = {...pedidoEmDetalhe!, ...pedidoAtualizado};
+      }
     });
 
     if (statusAnterior == null || statusAnterior == novoStatus) {
       return;
     }
 
+    await HistoricoNotificacoesPedidoService.instance.registrarStatusPedido(
+      pedidoId: id,
+      numeroPedido: pedidoAtualizado['numero_pedido']?.toString() ?? '',
+      status: novoStatus,
+      descricaoStatus: textoStatus(novoStatus),
+    );
+    await carregarContadorNotificacoes();
+
+    if (!mounted) {
+      return;
+    }
+
     mostrarAvisoStatusPedido(pedidoAtualizado, novoStatus);
+  }
+
+  Future<void> carregarContadorNotificacoes() async {
+    final quantidade = await HistoricoNotificacoesPedidoService.instance
+        .quantidadeNaoLidas();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      notificacoesNaoLidas = quantidade;
+    });
   }
 
   void mostrarAvisoStatusPedido(
@@ -475,13 +511,163 @@ class _PedidosPageState extends State<PedidosPage> {
     }
   }
 
-  void abrirDetalhes(Map<String, dynamic> pedido) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => PedidoDetalhePage(pedido: pedido)),
-    );
+  void abrirDetalhes(Map<String, dynamic> pedido) {
+    setState(() {
+      pedidoEmDetalhe = Map<String, dynamic>.from(pedido);
+    });
+    widget.onDetalheAlterado?.call(true);
+  }
+
+  bool fecharDetalhe({bool avisarPai = true}) {
+    if (pedidoEmDetalhe == null) {
+      return false;
+    }
+
+    setState(() {
+      pedidoEmDetalhe = null;
+    });
+
+    if (avisarPai) {
+      widget.onDetalheAlterado?.call(false);
+    }
 
     carregarPedidos();
+    return true;
+  }
+
+  String formatarDataNotificacao(DateTime data) {
+    final agora = DateTime.now();
+    final mesmaData =
+        agora.year == data.year &&
+        agora.month == data.month &&
+        agora.day == data.day;
+    final hora = data.hour.toString().padLeft(2, '0');
+    final minuto = data.minute.toString().padLeft(2, '0');
+
+    if (mesmaData) {
+      return 'Hoje às $hora:$minuto';
+    }
+
+    final dia = data.day.toString().padLeft(2, '0');
+    final mes = data.month.toString().padLeft(2, '0');
+    return '$dia/$mes/${data.year} às $hora:$minuto';
+  }
+
+  Future<void> abrirNotificacoes() async {
+    final notificacoes = await HistoricoNotificacoesPedidoService.instance
+        .listar();
+    await HistoricoNotificacoesPedidoService.instance.marcarTodasComoLidas();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      notificacoesNaoLidas = 0;
+    });
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: AppTemaService.fundo,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) {
+        return FractionallySizedBox(
+          heightFactor: 0.72,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.notifications_outlined,
+                      color: AppTemaService.primaria,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Últimas notificações',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: notificacoes.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: Text(
+                            'Nenhuma notificação recebida ainda.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: notificacoes.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1, indent: 72),
+                        itemBuilder: (context, index) {
+                          final notificacao = notificacoes[index];
+                          final cor = corStatus(notificacao.status);
+
+                          return Material(
+                            color: notificacao.lida
+                                ? Colors.transparent
+                                : cor.withValues(alpha: 0.06),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 7,
+                              ),
+                              leading: CircleAvatar(
+                                backgroundColor: cor.withValues(alpha: 0.13),
+                                foregroundColor: cor,
+                                child: Icon(iconeStatus(notificacao.status)),
+                              ),
+                              title: Text(
+                                notificacao.titulo,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '${notificacao.mensagem}\n${formatarDataNotificacao(notificacao.criadoEm)}',
+                                  style: const TextStyle(height: 1.35),
+                                ),
+                              ),
+                              isThreeLine: true,
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   bool podeCancelarPedido(Map<String, dynamic> pedido) {
@@ -934,9 +1120,14 @@ class _PedidosPageState extends State<PedidosPage> {
 
   @override
   Widget build(BuildContext context) {
-    final pedidosNovos = pedidos
-        .where((p) => (p['status']?.toString() ?? 'novo') == 'novo')
-        .length;
+    final detalhe = pedidoEmDetalhe;
+
+    if (detalhe != null) {
+      return PedidoDetalhePage(
+        pedido: detalhe,
+        onVoltar: () => fecharDetalhe(),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppTemaService.fundo,
@@ -953,13 +1144,13 @@ class _PedidosPageState extends State<PedidosPage> {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Atualizar pedidos',
-            onPressed: carregarPedidos,
+            tooltip: 'Notificações',
+            onPressed: abrirNotificacoes,
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
                 const Icon(Icons.notifications_none),
-                if (pedidosNovos > 0)
+                if (notificacoesNaoLidas > 0)
                   Positioned(
                     right: -5,
                     top: -5,
@@ -973,7 +1164,9 @@ class _PedidosPageState extends State<PedidosPage> {
                       ),
                       alignment: Alignment.center,
                       child: Text(
-                        pedidosNovos > 9 ? '9+' : '$pedidosNovos',
+                        notificacoesNaoLidas > 9
+                            ? '9+'
+                            : '$notificacoesNaoLidas',
                         style: const TextStyle(
                           color: Color(0xFF1F2937),
                           fontSize: 10,
@@ -984,6 +1177,11 @@ class _PedidosPageState extends State<PedidosPage> {
                   ),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: 'Atualizar pedidos',
+            onPressed: carregarPedidos,
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -1024,8 +1222,9 @@ class _PedidosPageState extends State<PedidosPage> {
 
 class PedidoDetalhePage extends StatefulWidget {
   final Map<String, dynamic> pedido;
+  final VoidCallback? onVoltar;
 
-  const PedidoDetalhePage({super.key, required this.pedido});
+  const PedidoDetalhePage({super.key, required this.pedido, this.onVoltar});
 
   @override
   State<PedidoDetalhePage> createState() => _PedidoDetalhePageState();
@@ -2086,6 +2285,13 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
       backgroundColor: AppTemaService.fundo,
       appBar: AppBar(
         title: Text('Pedido #$numero'),
+        leading: widget.onVoltar != null
+            ? IconButton(
+                tooltip: 'Voltar aos pedidos',
+                onPressed: widget.onVoltar,
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
         backgroundColor: AppTemaService.primaria,
         foregroundColor: Colors.white,
         elevation: 0,

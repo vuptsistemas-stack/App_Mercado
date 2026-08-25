@@ -29,6 +29,8 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   final GlobalKey<CarrinhoPageState> carrinhoPageKey =
       GlobalKey<CarrinhoPageState>();
+  final GlobalKey<PedidosPageState> pedidosPageKey =
+      GlobalKey<PedidosPageState>();
 
   late int indexSelecionado;
   String? categoriaSelecionada;
@@ -36,6 +38,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   bool exibindoFinalizarPedido = false;
   bool exibindoConta = false;
   bool exibirBotaoFinalizarCompra = false;
+  bool exibindoDetalhePedido = false;
 
   @override
   void initState() {
@@ -55,8 +58,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     }
 
     setState(() {
-      exibirBotaoFinalizarCompra =
-          configuracoes.exibirBotaoFinalizarCompra;
+      exibirBotaoFinalizarCompra = configuracoes.exibirBotaoFinalizarCompra;
     });
   }
 
@@ -67,7 +69,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void voltarParaInicio() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = null;
@@ -76,7 +80,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirCategoria(String categoria) {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = categoria;
@@ -85,7 +91,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirCategorias() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = null;
@@ -94,7 +102,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirFinalizarPedido() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       categoriaSelecionada = null;
       exibindoConta = false;
       exibindoFinalizarPedido = true;
@@ -103,7 +113,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirCarrinhoParaRevisao() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       categoriaSelecionada = null;
       exibindoConta = false;
       exibindoFinalizarPedido = false;
@@ -112,7 +124,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void voltarParaCarrinho() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = null;
@@ -121,7 +135,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirAbaPedidos() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = null;
@@ -130,7 +146,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirConta() {
+    pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
+      exibindoDetalhePedido = false;
       exibindoFinalizarPedido = false;
       exibindoConta = true;
       categoriaSelecionada = null;
@@ -139,7 +157,13 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void trocarAba(int index) {
+    if (index != 3) {
+      pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
+    }
     setState(() {
+      if (index != 3) {
+        exibindoDetalhePedido = false;
+      }
       exibindoFinalizarPedido = false;
       exibindoConta = false;
       categoriaSelecionada = null;
@@ -148,6 +172,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void tratarBotaoVoltar() {
+    if (exibindoDetalhePedido) {
+      pedidosPageKey.currentState?.fecharDetalhe();
+      return;
+    }
+
     if (exibindoConta) {
       setState(() {
         exibindoConta = false;
@@ -253,7 +282,19 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               onFinalizarPedido: abrirFinalizarPedido,
               onVoltarInicio: voltarParaInicio,
             ),
-      PedidosPage(onVoltarInicio: voltarParaInicio),
+      PedidosPage(
+        key: pedidosPageKey,
+        onVoltarInicio: voltarParaInicio,
+        onDetalheAlterado: (aberto) {
+          if (!mounted || exibindoDetalhePedido == aberto) {
+            return;
+          }
+
+          setState(() {
+            exibindoDetalhePedido = aberto;
+          });
+        },
+      ),
       ListasComprasPage(
         onAbrirCarrinho: () => trocarAba(2),
         onVoltarInicio: voltarParaInicio,
@@ -317,53 +358,53 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                       context: context,
                       removeBottom: true,
                       child: BottomNavigationBar(
-                    currentIndex: indexSelecionado,
-                    onTap: trocarAba,
-                    type: BottomNavigationBarType.fixed,
-                    selectedItemColor: AppTemaService.primaria,
-                    unselectedItemColor: const Color(0xFF5F6670),
-                    selectedFontSize: 11.5,
-                    unselectedFontSize: 11,
-                    iconSize: 27,
-                    elevation: 8,
-                    items: [
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.home_outlined),
-                        activeIcon: Icon(Icons.home),
-                        label: 'Início',
-                      ),
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.grid_view_outlined),
-                        activeIcon: Icon(Icons.grid_view),
-                        label: 'Categorias',
-                      ),
-                      BottomNavigationBarItem(
-                        icon: carrinhoIcone(
-                          ativo: false,
-                          quantidade: carrinho.quantidadeTotal,
-                        ),
-                        activeIcon: carrinhoIcone(
-                          ativo: true,
-                          quantidade: carrinho.quantidadeTotal,
-                        ),
-                        label: 'Carrinho',
-                      ),
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.receipt_long_outlined),
-                        activeIcon: Icon(Icons.receipt_long),
-                        label: 'Pedidos',
-                      ),
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.playlist_add_outlined),
-                        activeIcon: Icon(Icons.playlist_add_check_rounded),
-                        label: 'Listas',
-                      ),
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.more_horiz),
-                        activeIcon: Icon(Icons.more_rounded),
-                        label: 'Mais',
-                      ),
-                    ],
+                        currentIndex: indexSelecionado,
+                        onTap: trocarAba,
+                        type: BottomNavigationBarType.fixed,
+                        selectedItemColor: AppTemaService.primaria,
+                        unselectedItemColor: const Color(0xFF5F6670),
+                        selectedFontSize: 11.5,
+                        unselectedFontSize: 11,
+                        iconSize: 27,
+                        elevation: 8,
+                        items: [
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.home_outlined),
+                            activeIcon: Icon(Icons.home),
+                            label: 'Início',
+                          ),
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.grid_view_outlined),
+                            activeIcon: Icon(Icons.grid_view),
+                            label: 'Categorias',
+                          ),
+                          BottomNavigationBarItem(
+                            icon: carrinhoIcone(
+                              ativo: false,
+                              quantidade: carrinho.quantidadeTotal,
+                            ),
+                            activeIcon: carrinhoIcone(
+                              ativo: true,
+                              quantidade: carrinho.quantidadeTotal,
+                            ),
+                            label: 'Carrinho',
+                          ),
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.receipt_long_outlined),
+                            activeIcon: Icon(Icons.receipt_long),
+                            label: 'Pedidos',
+                          ),
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.playlist_add_outlined),
+                            activeIcon: Icon(Icons.playlist_add_check_rounded),
+                            label: 'Listas',
+                          ),
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.more_horiz),
+                            activeIcon: Icon(Icons.more_rounded),
+                            label: 'Mais',
+                          ),
+                        ],
                       ),
                     ),
                   ),

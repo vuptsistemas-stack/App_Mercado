@@ -74,6 +74,8 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Usamos sua localização para calcular entrega e preencher o endereço do pedido.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Usamos sua localização somente quando você solicita o envio do local de entrega do pedido.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

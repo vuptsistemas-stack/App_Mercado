@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notificacao_status_pedido_service.dart';
+import 'historico_notificacoes_pedido_service.dart';
 import 'push_notification_service.dart';
 import 'sessao_mercado_cliente.dart' as sessao;
 
@@ -122,6 +123,13 @@ class MonitorStatusPedidosClienteService {
     await _salvarStatusPersistidos();
 
     if (!notificar || anterior == null) return;
+
+    await HistoricoNotificacoesPedidoService.instance.registrarStatusPedido(
+      pedidoId: id,
+      numeroPedido: pedido['numero_pedido']?.toString() ?? '',
+      status: novoStatus,
+      descricaoStatus: _textoStatus(novoStatus),
+    );
 
     if (!PushNotificationService.instance.pushAtivo) {
       await NotificacaoStatusPedidoService.instance.statusAlterado(
