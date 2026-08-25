@@ -179,8 +179,10 @@ workflows:
 
       - name: Build iOS release assinado
         script: |
+          IOS_BUILD_NUMBER="${IOS_BUILD_NUMBER:-$BUILD_NUMBER}"
+          echo "Numero da compilacao iOS: $IOS_BUILD_NUMBER"
           flutter build ipa --release \
-            --build-number="$BUILD_NUMBER" \
+            --build-number="$IOS_BUILD_NUMBER" \
             --dart-define=APP_PACKAGE="$BUNDLE_ID" \
             --dart-define=MERCADO_ID="$MERCADO_ID" \
             --dart-define=MERCADO_CODIGO="$MERCADO_CODIGO" \
