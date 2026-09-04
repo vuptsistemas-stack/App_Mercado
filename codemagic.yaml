@@ -197,6 +197,115 @@ workflows:
         auth: integration
         submit_to_testflight: true
 
+  ios-admin-testflight:
+    name: iOS Vupt Admin multi-loja - TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      groups:
+        - ios_signing
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Validar configuracao do Admin
+        script: |
+          set -e
+          for var_name in BUNDLE_ID APP_NAME IOS_BUILD_NUMBER FIREBASE_IOS_PLIST_BASE64; do
+            eval "var_value=\${$var_name:-}"
+            if [ -z "$var_value" ]; then
+              echo "Variavel obrigatoria ausente: $var_name"
+              exit 1
+            fi
+          done
+
+          if [ "$BUNDLE_ID" != "br.com.vuptsistemas.vuptadmin" ]; then
+            echo "Bundle ID inesperado para o Vupt Admin: $BUNDLE_ID"
+            exit 1
+          fi
+
+          test -f app_admin/pubspec.yaml
+          test -f app_admin/ios/Runner.xcodeproj/project.pbxproj
+
+      - name: Flutter pub get do Admin
+        script: |
+          set -e
+          cd app_admin
+          flutter pub get
+
+      - name: Aplicar identidade e Firebase do Admin
+        script: |
+          set -e
+          cd app_admin
+          printf '%s' "$FIREBASE_IOS_PLIST_BASE64" | base64 -D > ios/Runner/GoogleService-Info.plist
+
+          FIREBASE_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" ios/Runner/GoogleService-Info.plist)
+          if [ "$FIREBASE_BUNDLE_ID" != "$BUNDLE_ID" ]; then
+            echo "O Firebase iOS pertence a $FIREBASE_BUNDLE_ID, mas o build usa $BUNDLE_ID."
+            exit 1
+          fi
+
+          ruby <<'RUBY'
+          project_path = 'ios/Runner.xcodeproj/project.pbxproj'
+          bundle_id = ENV.fetch('BUNDLE_ID')
+          content = File.read(project_path)
+          content.gsub!(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/) do |line|
+            suffix = line.include?('RunnerTests') ? '.RunnerTests' : ''
+            "PRODUCT_BUNDLE_IDENTIFIER = #{bundle_id}#{suffix};"
+          end
+          File.write(project_path, content)
+          RUBY
+
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" ios/Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :aps-environment production" ios/Runner/Runner.entitlements || \
+            /usr/libexec/PlistBuddy -c "Add :aps-environment string production" ios/Runner/Runner.entitlements
+
+      - name: Instalar pods iOS do Admin
+        script: |
+          set -e
+          cd app_admin/ios
+          pod install
+
+      - name: Criar e configurar assinatura iOS do Admin
+        script: |
+          set -e
+          cd app_admin
+          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            echo "A variavel CERTIFICATE_PRIVATE_KEY nao foi configurada no grupo ios_signing."
+            exit 1
+          fi
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key=@env:CERTIFICATE_PRIVATE_KEY \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build iOS Admin release assinado
+        script: |
+          set -e
+          cd app_admin
+          echo "Numero da compilacao iOS: $IOS_BUILD_NUMBER"
+          flutter build ipa --release \
+            --build-number="$IOS_BUILD_NUMBER" \
+            --dart-define=APP_PACKAGE="$BUNDLE_ID" \
+            --dart-define=APP_NAME="$APP_NAME" \
+            --dart-define=NOME_APP="$APP_NAME" \
+            --dart-define=ADMIN_APP_NAME="$APP_NAME" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - app_admin/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
   android-mercado-internal:
     name: Android Mercado - Google Play teste interno
     max_build_duration: 120
