@@ -1118,7 +1118,7 @@ class _LoginCentralPageState extends State<LoginCentralPage> {
                               },
                               decoration: InputDecoration(
                                 labelText: 'Código da loja',
-                                hintText: 'Ex: sao_mateus',
+                                hintText: 'Digite o código da loja',
                                 prefixIcon: const Icon(
                                   Icons.store_mall_directory_rounded,
                                 ),
