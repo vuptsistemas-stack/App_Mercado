@@ -26,8 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>A câmera é usada para ler códigos de barras e identificar produtos nas operações da loja.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A biblioteca de fotos é usada para selecionar imagens de produtos e da identidade visual da loja.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>O acesso às fotos permite salvar imagens geradas pelas ferramentas da loja.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Sua localizacao e usada para cadastrar a posicao exata da loja e calcular as entregas.</string>
+	<string>Sua localização é usada para cadastrar a posição da loja e calcular as entregas quando esse recurso for utilizado.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Sua localização é usada para cadastrar a posição da loja e apoiar o cálculo das entregas.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

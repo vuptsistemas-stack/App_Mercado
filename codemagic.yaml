@@ -229,6 +229,18 @@ workflows:
           test -f app_admin/pubspec.yaml
           test -f app_admin/ios/Runner.xcodeproj/project.pbxproj
 
+          for privacy_key in \
+            NSCameraUsageDescription \
+            NSPhotoLibraryUsageDescription \
+            NSLocationWhenInUseUsageDescription \
+            NSLocationAlwaysAndWhenInUseUsageDescription; do
+            privacy_value=$(/usr/libexec/PlistBuddy -c "Print :$privacy_key" app_admin/ios/Runner/Info.plist 2>/dev/null || true)
+            if [ -z "$privacy_value" ]; then
+              echo "Descricao de privacidade ausente no Info.plist: $privacy_key"
+              exit 1
+            fi
+          done
+
       - name: Flutter pub get do Admin
         script: |
           set -e
