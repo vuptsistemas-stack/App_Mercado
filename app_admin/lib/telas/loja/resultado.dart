@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../services/central_service.dart';
+import '../../services/lista_compras_service.dart';
 import '../../services/preferencias_interface_service.dart';
 import '../../services/sessao_loja.dart';
 import 'produto_imagem_page.dart';
@@ -30,6 +31,8 @@ class _TelaResultadoState extends State<TelaResultado> {
   bool carregandoPeriodo = false;
   bool carregandoEstoqueDetalhado = false;
   bool alterandoPreco = false;
+  bool adicionandoListaCompras = false;
+  bool produtoNaListaCompras = false;
   LayoutConsultaItem layoutConsultaItem = LayoutConsultaItem.compacto;
 
   Color get corPrimaria => SessaoLoja.corPrimaria;
@@ -42,6 +45,10 @@ class _TelaResultadoState extends State<TelaResultado> {
       (!SessaoLoja.logadoNaLoja ||
           SessaoLoja.usuarioAdminLoja ||
           SessaoLoja.temPermissao('alterar_preco'));
+  bool get podeAdicionarListaCompras =>
+      SessaoLoja.usuarioAdminLoja ||
+      SessaoLoja.usuarioAcessoTotal ||
+      SessaoLoja.temPermissao('lista_compras');
 
   @override
   void initState() {
@@ -227,6 +234,40 @@ class _TelaResultadoState extends State<TelaResultado> {
       context,
       MaterialPageRoute(builder: (_) => ProdutoImagemPage(produto: produto)),
     );
+  }
+
+  Future<void> adicionarListaCompras() async {
+    if (adicionandoListaCompras || produtoNaListaCompras) return;
+
+    setState(() => adicionandoListaCompras = true);
+    try {
+      final resposta = await ListaComprasService().adicionarProduto(produto);
+      if (!mounted) return;
+      final inserido = resposta['inserido'] == true;
+      setState(() => produtoNaListaCompras = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            inserido
+                ? 'Produto adicionado a lista de compras.'
+                : 'Este produto ja estava na lista de compras.',
+          ),
+          backgroundColor: corPrimaria,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erro ao adicionar na lista: ${CentralService.mensagemErroUsuario(e)}',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => adicionandoListaCompras = false);
+    }
   }
 
   Future<void> alterarPrecoProduto() async {
@@ -1618,6 +1659,51 @@ class _TelaResultadoState extends State<TelaResultado> {
               const SizedBox(height: 14),
               historicoComprasTabela(),
               const SizedBox(height: 18),
+              if (podeAdicionarListaCompras) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: adicionandoListaCompras
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            produtoNaListaCompras
+                                ? Icons.check_circle
+                                : Icons.playlist_add,
+                          ),
+                    label: Text(
+                      produtoNaListaCompras
+                          ? 'Produto na lista de compras'
+                          : 'Adicionar a lista de compras',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: produtoNaListaCompras
+                          ? Colors.green.shade700
+                          : corPrimaria,
+                      disabledBackgroundColor: produtoNaListaCompras
+                          ? Colors.green.shade700
+                          : corPrimaria.withValues(alpha: 0.65),
+                      disabledForegroundColor: Colors.white,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: adicionandoListaCompras || produtoNaListaCompras
+                        ? null
+                        : adicionarListaCompras,
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(

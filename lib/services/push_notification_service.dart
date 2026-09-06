@@ -26,13 +26,12 @@ class PushNotificationService {
   final SupabaseClient central = SupabaseClient(
     AppMercadoConfig.centralSupabaseUrl,
     AppMercadoConfig.centralSupabaseAnonKey,
-    authOptions: const AuthClientOptions(
-      autoRefreshToken: false,
-    ),
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
 
   bool escutandoAtualizacaoToken = false;
   bool escutandoMensagensForeground = false;
+  bool escutandoAberturaNotificacoes = false;
   bool pushAtivo = false;
   String ultimaChaveRegistrada = '';
   final Map<String, DateTime> _mensagensForegroundProcessadas = {};
@@ -45,6 +44,7 @@ class PushNotificationService {
     if (usuario == null || mercadoId.isEmpty) return;
 
     await NotificacaoStatusPedidoService.instance.inicializar();
+    _escutarAberturaNotificacoes();
 
     try {
       if (Firebase.apps.isEmpty) {
@@ -56,15 +56,17 @@ class PushNotificationService {
         badge: true,
         sound: true,
       );
-      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: false,
-        badge: false,
-        sound: false,
-      );
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+            alert: false,
+            badge: false,
+            sound: false,
+          );
       _escutarMensagensEmPrimeiroPlano();
 
       var token = await FirebaseMessaging.instance.getToken();
-      if ((token ?? '').isEmpty && defaultTargetPlatform == TargetPlatform.iOS) {
+      if ((token ?? '').isEmpty &&
+          defaultTargetPlatform == TargetPlatform.iOS) {
         await Future<void>.delayed(const Duration(seconds: 2));
         token = await FirebaseMessaging.instance.getToken();
       }
@@ -97,10 +99,21 @@ class PushNotificationService {
     escutandoMensagensForeground = true;
     FirebaseMessaging.onMessage.listen((mensagem) async {
       final evento = mensagem.data['evento']?.toString().toUpperCase() ?? '';
+      if (evento == 'JORNAL_PUBLICADO') {
+        await NotificacaoStatusPedidoService.instance.jornalPublicado(
+          titulo: mensagem.notification?.title ?? 'Novo jornal de ofertas',
+          mensagem:
+              mensagem.notification?.body ??
+              'Confira as novas ofertas da loja.',
+        );
+        return;
+      }
+
       if (evento != 'STATUS_PEDIDO') return;
 
       final pedidoId = mensagem.data['pedido_id']?.toString() ?? '';
-      final status = mensagem.data['status']?.toString().trim().toLowerCase() ?? '';
+      final status =
+          mensagem.data['status']?.toString().trim().toLowerCase() ?? '';
       final chave = '$evento:$pedidoId:$status';
       final agora = DateTime.now();
 
@@ -118,6 +131,25 @@ class PushNotificationService {
     });
   }
 
+  void _escutarAberturaNotificacoes() {
+    if (escutandoAberturaNotificacoes) return;
+    escutandoAberturaNotificacoes = true;
+
+    FirebaseMessaging.onMessageOpenedApp.listen(_tratarAberturaNotificacao);
+    FirebaseMessaging.instance.getInitialMessage().then((mensagem) {
+      if (mensagem != null) _tratarAberturaNotificacao(mensagem);
+    });
+  }
+
+  void _tratarAberturaNotificacao(RemoteMessage mensagem) {
+    final evento = mensagem.data['evento']?.toString().toUpperCase() ?? '';
+    if (evento == 'JORNAL_PUBLICADO') {
+      NotificacaoStatusPedidoService.instance.abrirDestino('jornal_promocoes');
+    } else if (evento == 'STATUS_PEDIDO') {
+      NotificacaoStatusPedidoService.instance.abrirDestino('pedidos');
+    }
+  }
+
   Future<void> _registrarToken(String token) async {
     final clienteLoja = Supabase.instance.client;
     final usuario = clienteLoja.auth.currentUser;
@@ -133,8 +165,7 @@ class PushNotificationService {
       'registrar-push-token',
       body: {
         'mercado_id': mercadoId,
-        'mercado_codigo':
-            sessao.SessaoMercadoCliente.mercadoCodigoObrigatorio,
+        'mercado_codigo': sessao.SessaoMercadoCliente.mercadoCodigoObrigatorio,
         'app_tipo': 'CLIENTE',
         'plataforma': _plataforma,
         'fcm_token': token,
@@ -144,8 +175,7 @@ class PushNotificationService {
     );
 
     final dados = resposta.data;
-    if (resposta.status >= 400 ||
-        (dados is Map && dados['sucesso'] == false)) {
+    if (resposta.status >= 400 || (dados is Map && dados['sucesso'] == false)) {
       throw Exception(
         dados is Map ? dados['erro'] ?? 'Falha ao registrar push.' : dados,
       );
@@ -185,9 +215,8 @@ class PushNotificationService {
     }
   }
 
-  String get _plataforma => defaultTargetPlatform == TargetPlatform.iOS
-      ? 'IOS'
-      : 'ANDROID';
+  String get _plataforma =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'IOS' : 'ANDROID';
 
   String _textoStatus(String status) {
     switch (status) {

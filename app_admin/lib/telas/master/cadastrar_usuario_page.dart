@@ -68,9 +68,15 @@ class _CadastrarUsuarioPageState extends State<CadastrarUsuarioPage> {
     },
     {
       'codigo': 'balanco',
-      'nome': 'Balanço',
-      'descricao': 'Coletar itens e gerar arquivo TXT',
+      'nome': 'Coletor/Balanço',
+      'descricao': 'Criar coletas ou balanços e gerar TXT no servidor',
       'icone': Icons.assignment_turned_in_outlined,
+    },
+    {
+      'codigo': 'lista_compras',
+      'nome': 'Lista de compras',
+      'descricao': 'Planejar pedidos por fornecedor e exportar Excel',
+      'icone': Icons.shopping_cart_checkout,
     },
     {
       'codigo': 'conferencia_notas',
@@ -95,6 +101,12 @@ class _CadastrarUsuarioPageState extends State<CadastrarUsuarioPage> {
       'nome': 'Correção de Estoque',
       'descricao': 'Corrigir quantidade de estoque',
       'icone': Icons.edit_note,
+    },
+    {
+      'codigo': 'estoque_transferencia',
+      'nome': 'Transferência entre estoques',
+      'descricao': 'Transferir produtos entre locais de estoque',
+      'icone': Icons.swap_horiz,
     },
     {
       'codigo': 'estoque_baixa_avaria',
@@ -288,9 +300,11 @@ class _CadastrarUsuarioPageState extends State<CadastrarUsuarioPage> {
       permissoesSelecionadas = {
         'consulta_preco',
         'balanco',
+        'lista_compras',
         'estoque',
         'estoque_entrada',
         'estoque_correcao',
+        'estoque_transferencia',
         'estoque_baixa_avaria',
         'estoque_baixa_validade',
         'estoque_abrir_pacote',

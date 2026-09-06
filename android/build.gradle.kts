@@ -14,6 +14,13 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
+
+    if (name in setOf("flutter_zxing", "geocoding_android", "geolocator_android")) {
+        tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+            sourceCompatibility = JavaVersion.VERSION_17.toString()
+            targetCompatibility = JavaVersion.VERSION_17.toString()
+        }
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")

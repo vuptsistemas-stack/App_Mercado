@@ -9,8 +9,15 @@ import 'login_page.dart';
 
 class MaisPage extends StatelessWidget {
   final VoidCallback? onVoltarInicio;
+  final bool modoVisitante;
+  final VoidCallback? onEntrar;
 
-  const MaisPage({super.key, this.onVoltarInicio});
+  const MaisPage({
+    super.key,
+    this.onVoltarInicio,
+    this.modoVisitante = false,
+    this.onEntrar,
+  });
 
   static const String versaoApp = '1.0.0';
   static const String desenvolvedorPadrao = 'Mercado Digital Tecnologia';
@@ -366,6 +373,11 @@ class MaisPage extends StatelessWidget {
   }
 
   void abrirConta(BuildContext context) {
+    if (modoVisitante) {
+      onEntrar?.call();
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -437,8 +449,10 @@ class MaisPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Conta, atendimento, políticas e informações do aplicativo',
+                Text(
+                  modoVisitante
+                      ? 'Atendimento, políticas e informações da loja'
+                      : 'Conta, atendimento, políticas e informações do aplicativo',
                   style: TextStyle(
                     color: Colors.black54,
                     fontSize: 12.5,
@@ -582,18 +596,27 @@ class MaisPage extends StatelessWidget {
         mainAxisExtent: 90,
       ),
       children: [
-        itemMenu(
-          icone: Icons.person_outline,
-          titulo: 'Minha conta',
-          descricao: 'Dados pessoais',
-          onTap: () => abrirConta(context),
-        ),
-        itemMenu(
-          icone: Icons.location_on_outlined,
-          titulo: 'Meus endereços',
-          descricao: 'Entrega',
-          onTap: () => abrirConta(context),
-        ),
+        if (modoVisitante)
+          itemMenu(
+            icone: Icons.login,
+            titulo: 'Entrar',
+            descricao: 'Pedidos e conta',
+            onTap: () => onEntrar?.call(),
+          )
+        else ...[
+          itemMenu(
+            icone: Icons.person_outline,
+            titulo: 'Minha conta',
+            descricao: 'Dados pessoais',
+            onTap: () => abrirConta(context),
+          ),
+          itemMenu(
+            icone: Icons.location_on_outlined,
+            titulo: 'Meus endereços',
+            descricao: 'Entrega',
+            onTap: () => abrirConta(context),
+          ),
+        ],
         itemMenu(
           icone: Icons.support_agent_outlined,
           titulo: 'Atendimento',
@@ -701,13 +724,14 @@ class MaisPage extends StatelessWidget {
             secoes: secoesSobreApp(),
           ),
         ),
-        itemMenu(
-          icone: Icons.logout,
-          titulo: 'Sair da conta',
-          descricao: 'Encerrar',
-          cor: const Color(0xFF8A4A4A),
-          onTap: () => sair(context),
-        ),
+        if (!modoVisitante)
+          itemMenu(
+            icone: Icons.logout,
+            titulo: 'Sair da conta',
+            descricao: 'Encerrar',
+            cor: const Color(0xFF8A4A4A),
+            onTap: () => sair(context),
+          ),
       ],
     );
   }

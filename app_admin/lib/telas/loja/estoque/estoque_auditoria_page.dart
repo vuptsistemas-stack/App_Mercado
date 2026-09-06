@@ -164,6 +164,7 @@ class _EstoqueAuditoriaPageState extends State<EstoqueAuditoriaPage> {
     final tipo = texto(item['tipo_movimentacao']).toUpperCase();
     if (tipo == 'ENTRADA') return 'Entrada';
     if (tipo == 'CORRECAO') return 'Correção';
+    if (tipo == 'TRANSFERENCIA') return 'Transferência';
     if (tipo == 'CONSUMO_INTERNO') return 'Consumo interno';
     if (tipo == 'BAIXA_AVARIA') return 'Baixa avaria';
     if (tipo == 'BAIXA_VALIDADE') return 'Baixa validade';
@@ -174,6 +175,7 @@ class _EstoqueAuditoriaPageState extends State<EstoqueAuditoriaPage> {
     final tipo = texto(item['tipo_movimentacao']).toUpperCase();
     if (tipo == 'ENTRADA') return Colors.green;
     if (tipo == 'CORRECAO') return Colors.orange;
+    if (tipo == 'TRANSFERENCIA') return Colors.indigo;
     if (tipo == 'CONSUMO_INTERNO') return Colors.deepPurple;
     if (tipo == 'BAIXA_AVARIA') return Colors.deepOrange;
     if (tipo == 'BAIXA_VALIDADE') return Colors.red;
@@ -207,6 +209,7 @@ class _EstoqueAuditoriaPageState extends State<EstoqueAuditoriaPage> {
   String nomeFiltroSelecionado() {
     if (filtroTipo == 'ENTRADA') return 'Entradas';
     if (filtroTipo == 'CORRECAO') return 'Correcoes';
+    if (filtroTipo == 'TRANSFERENCIA') return 'Transferencias';
     if (filtroTipo == 'CONSUMO_INTERNO') return 'Consumo';
     if (filtroTipo == 'BAIXA_AVARIA') return 'Avarias';
     if (filtroTipo == 'BAIXA_VALIDADE') return 'Validade';
@@ -395,9 +398,8 @@ class _EstoqueAuditoriaPageState extends State<EstoqueAuditoriaPage> {
 
     if (produtoId.isNotEmpty) {
       urls.add(
-        Uri.parse(
-          '$api/produto',
-        ).replace(queryParameters: {'busca': produtoId}),
+        Uri.parse('$api/produto')
+            .replace(queryParameters: {'busca': produtoId}),
       );
     }
 
@@ -860,6 +862,19 @@ class _EstoqueAuditoriaPageState extends State<EstoqueAuditoriaPage> {
                 valor: totalPorTipo('BAIXA_VALIDADE').toString(),
                 icone: Icons.event_busy_outlined,
                 tipoFiltro: 'BAIXA_VALIDADE',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: cardResumo(
+                titulo: 'Transferências',
+                valor: totalPorTipo('TRANSFERENCIA').toString(),
+                icone: Icons.swap_horiz,
+                tipoFiltro: 'TRANSFERENCIA',
               ),
             ),
           ],

@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,6 +8,7 @@ import '../services/historico_notificacoes_pedido_service.dart';
 import '../services/imagem_service.dart';
 import '../services/push_notification_service.dart';
 import '../utils/mensagem_erro.dart';
+import '../widgets/imagem_produto_network.dart';
 
 String nomeMercado() {
   final nome = sessao.SessaoMercadoCliente.mercadoNome.trim();
@@ -2333,19 +2333,22 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(10),
-          child: CachedNetworkImage(
-            imageUrl: imagemUrl,
+          child: ImagemProdutoNetwork(
+            imagemUrl: imagemUrl,
+            ean: ean,
+            nomeProduto: nomeProduto,
+            imagemUrlCadastroProdutoApp: imagemCadastro,
             width: 54,
             height: 54,
             fit: BoxFit.contain,
-            placeholder: (context, url) => const Center(
+            placeholder: const Center(
               child: SizedBox(
                 width: 17,
                 height: 17,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            errorWidget: (context, url, error) => fallback(),
+            fallback: fallback(),
           ),
         );
       },

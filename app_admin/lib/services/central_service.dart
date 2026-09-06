@@ -203,9 +203,10 @@ class CentralService {
 
   bool _erroIndicaTokenExpirado(Object erro) {
     if (erro is FunctionException) {
-      return _textoIndicaSessaoExpirada(
-        '${erro.details ?? ''} ${erro.reasonPhrase ?? ''} ${erro.toString()}',
-      );
+      return erro.status == 401 ||
+          _textoIndicaSessaoExpirada(
+            '${erro.details ?? ''} ${erro.reasonPhrase ?? ''} ${erro.toString()}',
+          );
     }
 
     return _textoIndicaSessaoExpirada(erro.toString());
@@ -227,10 +228,11 @@ class CentralService {
         headers: headers,
       );
 
-      // Se o token da loja expirou, renova e tenta apenas mais uma vez.
-      // Não trata "401" genérico como expiração, porque pode ser permissão.
+      // Se o token da loja expirou, força a renovação e tenta apenas mais uma vez.
       if (usarTokenLoja && _respostaIndicaTokenExpirado(primeiraResposta)) {
-        final renovou = await SessaoLoja.renovarSessaoLojaSePossivel();
+        final renovou = await SessaoLoja.renovarSessaoLojaSePossivel(
+          forcar: true,
+        );
 
         if (renovou) {
           final headersRenovados = await _headersAutenticacaoAtualizados(
@@ -248,7 +250,9 @@ class CentralService {
       return primeiraResposta;
     } catch (e) {
       if (usarTokenLoja && _erroIndicaTokenExpirado(e)) {
-        final renovou = await SessaoLoja.renovarSessaoLojaSePossivel();
+        final renovou = await SessaoLoja.renovarSessaoLojaSePossivel(
+          forcar: true,
+        );
 
         if (renovou) {
           try {

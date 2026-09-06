@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,14 +8,23 @@ import '../services/imagem_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../services/app_tema_service.dart';
 import '../services/lista_compras_service.dart';
+import '../widgets/imagem_produto_network.dart';
 import 'finalizar_pedido_page.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 
 class CarrinhoPage extends StatefulWidget {
   final VoidCallback? onFinalizarPedido;
   final VoidCallback? onVoltarInicio;
+  final bool modoVisitante;
+  final VoidCallback? onSolicitarLogin;
 
-  const CarrinhoPage({super.key, this.onFinalizarPedido, this.onVoltarInicio});
+  const CarrinhoPage({
+    super.key,
+    this.onFinalizarPedido,
+    this.onVoltarInicio,
+    this.modoVisitante = false,
+    this.onSolicitarLogin,
+  });
 
   @override
   State<CarrinhoPage> createState() => CarrinhoPageState();
@@ -87,6 +95,11 @@ class CarrinhoPageState extends State<CarrinhoPage> {
   }
 
   Future<void> salvarCarrinhoComoLista(BuildContext context) async {
+    if (widget.modoVisitante) {
+      widget.onSolicitarLogin?.call();
+      return;
+    }
+
     final carrinho = context.read<CarrinhoController>();
 
     if (carrinho.itens.isEmpty) {
@@ -253,9 +266,8 @@ class CarrinhoPageState extends State<CarrinhoPage> {
                                     onPressed: () {
                                       FocusManager.instance.primaryFocus
                                           ?.unfocus();
-                                      Navigator.of(
-                                        dialogContext,
-                                      ).pop(nomeDigitado);
+                                      Navigator.of(dialogContext)
+                                          .pop(nomeDigitado);
                                     },
                                     icon: const Icon(Icons.save_alt_rounded),
                                     label: const Text(
@@ -566,6 +578,11 @@ class CarrinhoPageState extends State<CarrinhoPage> {
   }
 
   Future<void> abrirFinalizarPedido(BuildContext context) async {
+    if (widget.modoVisitante) {
+      widget.onSolicitarLogin?.call();
+      return;
+    }
+
     final carrinho = context.read<CarrinhoController>();
 
     await carrinho.atualizarProdutosCarrinho();
@@ -1115,17 +1132,22 @@ class CarrinhoPageState extends State<CarrinhoPage> {
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: CachedNetworkImage(
-            imageUrl: imagemUrl,
+          child: ImagemProdutoNetwork(
+            imagemUrl: imagemUrl,
+            ean: produto.ean,
+            nomeProduto: produto.nome,
+            imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
+                ? produto.imagemUrl
+                : '',
             fit: BoxFit.contain,
-            placeholder: (context, url) => Center(
+            placeholder: Center(
               child: SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            errorWidget: (context, url, error) => Icon(
+            fallback: Icon(
               Icons.shopping_basket,
               color: AppTemaService.primaria,
               size: 32,

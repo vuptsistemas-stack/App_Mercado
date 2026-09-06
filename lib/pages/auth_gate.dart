@@ -21,6 +21,7 @@ enum _DestinoAuth {
   completarCadastro,
   redefinirSenha,
   bloqueado,
+  visitante,
   app,
   erro,
 }
@@ -139,8 +140,7 @@ class _AuthGateState extends State<AuthGate> {
 
       setState(() {
         destino = _DestinoAuth.erro;
-        mensagemErro =
-            'Nao conseguimos renovar sua sessao agora. Verifique sua conexao e tente novamente.';
+        mensagemErro = 'Nao conseguimos renovar sua sessao agora. Verifique sua conexao e tente novamente.';
       });
     }
   }
@@ -344,6 +344,21 @@ class _AuthGateState extends State<AuthGate> {
     setState(() {
       onboardingExibidoNestaSessao = true;
       destino = _DestinoAuth.login;
+    });
+  }
+
+  void continuarComoVisitante() {
+    LojaFuncionamentoService.limparCategoriasBloqueadasCliente();
+    setState(() {
+      destino = _DestinoAuth.visitante;
+      mensagemErro = null;
+    });
+  }
+
+  void abrirLogin() {
+    setState(() {
+      destino = _DestinoAuth.login;
+      mensagemErro = null;
     });
   }
 
@@ -613,7 +628,7 @@ class _AuthGateState extends State<AuthGate> {
         return OnboardingPage(onConcluir: concluirOnboarding);
 
       case _DestinoAuth.login:
-        return const LoginPage();
+        return LoginPage(onContinuarSemConta: continuarComoVisitante);
 
       case _DestinoAuth.completarCadastro:
         return const CompletarCadastroPage();
@@ -623,6 +638,12 @@ class _AuthGateState extends State<AuthGate> {
 
       case _DestinoAuth.bloqueado:
         return telaClienteBloqueado();
+
+      case _DestinoAuth.visitante:
+        return MainNavigationPage(
+          modoVisitante: true,
+          onSolicitarLogin: abrirLogin,
+        );
 
       case _DestinoAuth.app:
         return const MainNavigationPage();

@@ -16,6 +16,7 @@ import '../shared/usuarios_sistema_page.dart';
 import 'estoque/estoque_page.dart';
 import 'estoque/estoque_auditoria_page.dart';
 import 'balanco_page.dart';
+import 'lista_compras_page.dart';
 import 'conferencia_notas_page.dart';
 import 'consulta_item_page.dart';
 import 'home.dart';
@@ -69,10 +70,12 @@ class _MenuInicialPageState extends State<MenuInicialPage>
     'consulta_preco',
     'consulta_item',
     'balanco',
+    'lista_compras',
     'conferencia_notas',
     'estoque',
     'estoque_entrada',
     'estoque_correcao',
+    'estoque_transferencia',
     'estoque_baixa_avaria',
     'estoque_baixa_validade',
     'estoque_consumo_interno',
@@ -169,9 +172,7 @@ class _MenuInicialPageState extends State<MenuInicialPage>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ativou
-              ? 'Notificacoes ativadas neste dispositivo.'
-              : 'Nao foi possivel ativar. No iPhone, abra o PWA instalado na Tela de Inicio e permita as notificacoes.',
+          ativou ? 'Notificacoes ativadas neste dispositivo.' : 'Nao foi possivel ativar. No iPhone, abra o PWA instalado na Tela de Inicio e permita as notificacoes.',
         ),
         backgroundColor: ativou ? Colors.green : Colors.orange,
       ),
@@ -935,12 +936,26 @@ class _MenuInicialPageState extends State<MenuInicialPage>
       );
     }
 
+    if (temPermissao('lista_compras') || SessaoLoja.usuarioAdminLoja) {
+      itens.add(
+        cardMenu(
+          context: context,
+          titulo: 'Lista de compras',
+          subtitulo: 'Pedidos por fornecedor',
+          icone: Icons.shopping_cart_checkout,
+          pagina: const ListaComprasPage(),
+          permitido:
+              temPermissao('lista_compras') || SessaoLoja.usuarioAdminLoja,
+        ),
+      );
+    }
+
     if (temPermissao('balanco')) {
       itens.add(
         cardMenu(
           context: context,
-          titulo: 'Balanço',
-          subtitulo: 'Coletar itens TXT',
+          titulo: 'Coletor/Balanço',
+          subtitulo: 'Criar coletas e balanços TXT',
           icone: Icons.assignment_turned_in_outlined,
           pagina: BalancoPage(
             podeGerarTxt:
@@ -971,6 +986,7 @@ class _MenuInicialPageState extends State<MenuInicialPage>
       'estoque',
       'estoque_entrada',
       'estoque_correcao',
+      'estoque_transferencia',
       'estoque_baixa_avaria',
       'estoque_baixa_validade',
     ])) {
@@ -985,6 +1001,7 @@ class _MenuInicialPageState extends State<MenuInicialPage>
             'estoque',
             'estoque_entrada',
             'estoque_correcao',
+            'estoque_transferencia',
             'estoque_baixa_avaria',
             'estoque_baixa_validade',
           ]),

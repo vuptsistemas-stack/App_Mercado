@@ -13,7 +13,9 @@ import 'recuperar_senha_page.dart';
 import '../services/app_tema_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final VoidCallback? onContinuarSemConta;
+
+  const LoginPage({super.key, this.onContinuarSemConta});
 
   static const String appPackage = String.fromEnvironment(
     'APP_PACKAGE',
@@ -428,6 +430,8 @@ class _LoginPageState extends State<LoginPage> {
                                   onEntrar: loginEmail,
                                   onCriarConta: abrirCadastroCliente,
                                   onResetarSenha: abrirRecuperacaoSenha,
+                                  onContinuarSemConta:
+                                      widget.onContinuarSemConta,
                                   onToggleSenha: () {
                                     setState(() {
                                       senhaVisivel = !senhaVisivel;
@@ -687,6 +691,7 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
   final VoidCallback onEntrar;
   final VoidCallback onCriarConta;
   final VoidCallback onResetarSenha;
+  final VoidCallback? onContinuarSemConta;
   final VoidCallback onToggleSenha;
 
   const _FormularioLoginSemRolagem({
@@ -703,6 +708,7 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
     required this.onEntrar,
     required this.onCriarConta,
     required this.onResetarSenha,
+    required this.onContinuarSemConta,
     required this.onToggleSenha,
   });
 
@@ -793,6 +799,27 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
                     ),
             ),
           ),
+          if (onContinuarSemConta != null) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: bloqueado ? null : onContinuarSemConta,
+                icon: const Icon(Icons.storefront_outlined, size: 20),
+                label: const Text(
+                  'Explorar produtos sem entrar',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: corPrimaria,
+                  side: BorderSide(color: corPrimaria.withValues(alpha: 0.42)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Row(
             children: [

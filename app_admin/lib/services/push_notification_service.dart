@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -233,8 +234,70 @@ class PushNotificationService {
     }
   }
 
+  Future<ResultadoPublicacaoJornal> publicarJornal({
+    required String titulo,
+    required String validade,
+    required String formato,
+    required int largura,
+    required int altura,
+    required Uint8List imagem,
+  }) async {
+    SessaoLoja.sincronizarSessaoAtual();
+
+    final mercadoId = SessaoLoja.mercadoIdObrigatorio.trim();
+    if (mercadoId.isEmpty) {
+      throw Exception('Loja não identificada.');
+    }
+
+    final resposta = await Supabase.instance.client.functions.invoke(
+      'notificar-jornal-push',
+      body: {
+        'mercado_id': mercadoId,
+        'mercado_codigo': SessaoLoja.mercadoCodigo ?? '',
+        'mercado_nome': SessaoLoja.mercadoNome ?? '',
+        'titulo_jornal': titulo.trim(),
+        'validade': validade.trim(),
+        'formato': formato.trim(),
+        'largura': largura,
+        'altura': altura,
+        'imagem_mime_type': 'image/png',
+        'imagem_base64': base64Encode(imagem),
+        'loja_access_token': SessaoLoja.lojaAccessToken,
+      },
+    );
+
+    final dados = resposta.data;
+    if (resposta.status >= 400 || dados is! Map || dados['sucesso'] != true) {
+      final mensagem = dados is Map
+          ? dados['erro']?.toString()
+          : 'Falha ao publicar o jornal.';
+      throw Exception(mensagem ?? 'Falha ao publicar o jornal.');
+    }
+
+    return ResultadoPublicacaoJornal(
+      dispositivos: int.tryParse('${dados['dispositivos'] ?? 0}') ?? 0,
+      enviados: int.tryParse('${dados['enviados'] ?? 0}') ?? 0,
+      falhas: int.tryParse('${dados['falhas'] ?? 0}') ?? 0,
+      jornalSalvo: dados['jornal_salvo'] == true,
+    );
+  }
+
   String get _plataforma {
     if (kIsWeb) return 'WEB';
     return defaultTargetPlatform == TargetPlatform.iOS ? 'IOS' : 'ANDROID';
   }
+}
+
+class ResultadoPublicacaoJornal {
+  final int dispositivos;
+  final int enviados;
+  final int falhas;
+  final bool jornalSalvo;
+
+  const ResultadoPublicacaoJornal({
+    required this.dispositivos,
+    required this.enviados,
+    required this.falhas,
+    required this.jornalSalvo,
+  });
 }

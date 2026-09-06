@@ -10,7 +10,6 @@ import '../../../services/central_service.dart';
 import '../../../services/sessao_loja.dart';
 import '../scanner.dart';
 import 'estoque_auditoria_page.dart';
-import 'estoque_diferencas_page.dart';
 
 bool lerBooleanoDinamico(dynamic valor, {required bool padrao}) {
   if (valor == true) {
@@ -375,6 +374,27 @@ class _EstoquePageState extends State<EstoquePage> {
                       icone: Icons.edit_note,
                     ),
                   ),
+                if (SessaoLoja.estoqueDetalhadoAtivo &&
+                    usuarioPodePermissaoEstoque(
+                      'estoque_transferencia',
+                      masterCentralConfirmado: usuarioMasterCentral,
+                    ))
+                  cardOpcao(
+                    titulo: 'Transferir entre estoques',
+                    subtitulo: 'Mover produtos entre locais da loja',
+                    icone: Icons.swap_horiz,
+                    cor: Colors.indigo,
+                    onTap: () => abrirTelaConsulta(
+                      context: context,
+                      titulo: 'Transferir entre estoques',
+                      subtitulo:
+                          'Busque o produto e escolha a origem e o destino.',
+                      tipo: 'TRANSFERENCIA',
+                      permissao: 'estoque_transferencia',
+                      cor: Colors.indigo,
+                      icone: Icons.swap_horiz,
+                    ),
+                  ),
                 if (usuarioPodeAlgumaPermissaoEstoque([
                   'estoque_entrada',
                   'estoque_correcao',
@@ -467,26 +487,11 @@ class _EstoquePageState extends State<EstoquePage> {
                       ),
                     ),
                   ),
-                if (usuarioPodeAlgumaPermissaoEstoque([
-                  'estoque',
-                  'estoque_auditoria',
-                ], masterCentralConfirmado: usuarioMasterCentral))
-                  cardOpcao(
-                    titulo: 'Analisar diferenças',
-                    subtitulo: 'Cruzar compra, venda e estoque atual',
-                    icone: Icons.compare_arrows,
-                    cor: Colors.deepPurple,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const EstoqueDiferencasPage(),
-                      ),
-                    ),
-                  ),
                 if (!usuarioPodeAlgumaPermissaoEstoque([
                   'estoque',
                   'estoque_entrada',
                   'estoque_correcao',
+                  'estoque_transferencia',
                   'estoque_baixa_avaria',
                   'estoque_baixa_validade',
                   'estoque_abrir_pacote',
@@ -797,9 +802,9 @@ class _AbrirPacotePageState extends State<AbrirPacotePage> {
         );
       }
 
-      final locais = extrairLocaisEstoque(
-        data,
-      ).where(localConsideradoNoApp).toList();
+      final locais = extrairLocaisEstoque(data)
+          .where(localConsideradoNoApp)
+          .toList();
       final localPadrao = locais.length == 1 ? locais.first : null;
 
       if (!mounted) return;
@@ -1294,7 +1299,8 @@ class _AbrirPacotePageState extends State<AbrirPacotePage> {
         final mensagemApi = data is Map && data['erro'] != null
             ? data['erro'].toString().trim()
             : resposta.body.trim();
-        final rotaAusente = resposta.statusCode == 404 &&
+        final rotaAusente =
+            resposta.statusCode == 404 &&
             (mensagemApi.isEmpty ||
                 mensagemApi.toLowerCase().contains('cannot post') ||
                 mensagemApi.toLowerCase().contains('<!doctype html'));
@@ -1361,9 +1367,7 @@ class _AbrirPacotePageState extends State<AbrirPacotePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            auditoriaOk
-                ? 'Pacote aberto e estoque atualizado.'
-                : 'Estoque atualizado, mas a auditoria nao foi gravada completamente.',
+            auditoriaOk ? 'Pacote aberto e estoque atualizado.' : 'Estoque atualizado, mas a auditoria nao foi gravada completamente.',
           ),
           backgroundColor: auditoriaOk ? Colors.green : Colors.orange,
         ),
@@ -3641,6 +3645,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
   final novaQuantidadeController = TextEditingController();
   final quantidadeConsumoController = TextEditingController();
   final quantidadeBaixaController = TextEditingController();
+  final quantidadeTransferenciaController = TextEditingController();
   final observacaoController = TextEditingController();
 
   Timer? debounceBusca;
@@ -3663,6 +3668,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
   Map<String, dynamic>? produtoSelecionado;
   List<Map<String, dynamic>> locaisEstoque = [];
   Map<String, dynamic>? localEstoqueSelecionado;
+  Map<String, dynamic>? localEstoqueDestinoSelecionado;
   bool carregandoLocaisEstoque = false;
   String? erroLocaisEstoque;
   int codigoLocaisEstoqueAtual = 0;
@@ -3871,6 +3877,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
     novaQuantidadeController.dispose();
     quantidadeConsumoController.dispose();
     quantidadeBaixaController.dispose();
+    quantidadeTransferenciaController.dispose();
     observacaoController.dispose();
     super.dispose();
   }
@@ -3909,7 +3916,8 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
             widget.tipo == 'CORRECAO' ||
             widget.tipo == 'CONSUMO_INTERNO' ||
             widget.tipo == 'BAIXA_AVARIA' ||
-            widget.tipo == 'BAIXA_VALIDADE');
+            widget.tipo == 'BAIXA_VALIDADE' ||
+            widget.tipo == 'TRANSFERENCIA');
   }
 
   bool get tipoBaixaEstoque {
@@ -4006,6 +4014,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
     codigoLocaisEstoqueAtual++;
     locaisEstoque = [];
     localEstoqueSelecionado = null;
+    localEstoqueDestinoSelecionado = null;
     carregandoLocaisEstoque = false;
     erroLocaisEstoque = null;
   }
@@ -4045,6 +4054,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
       erroLocaisEstoque = null;
       locaisEstoque = [];
       localEstoqueSelecionado = null;
+      localEstoqueDestinoSelecionado = null;
     });
 
     try {
@@ -4076,10 +4086,12 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
         );
       }
 
-      final locais = extrairLocaisEstoque(
-        data,
-      ).where(localConsideradoNoApp).toList();
-      final localPadrao = locais.length == 1 ? locais.first : null;
+      final locais = extrairLocaisEstoque(data)
+          .where(localConsideradoNoApp)
+          .toList();
+      final localPadrao = widget.tipo != 'TRANSFERENCIA' && locais.length == 1
+          ? locais.first
+          : null;
 
       if (!mounted || codigoExecucao != codigoLocaisEstoqueAtual) {
         return;
@@ -4088,6 +4100,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
       setState(() {
         locaisEstoque = locais;
         localEstoqueSelecionado = localPadrao;
+        localEstoqueDestinoSelecionado = null;
         carregandoLocaisEstoque = false;
         erroLocaisEstoque = null;
       });
@@ -4114,6 +4127,8 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
       quantidadeEntradaController.clear();
       novaQuantidadeController.clear();
       quantidadeConsumoController.clear();
+      quantidadeBaixaController.clear();
+      quantidadeTransferenciaController.clear();
       observacaoController.clear();
       limparEstadoLocaisEstoque();
     });
@@ -4302,6 +4317,7 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
       novaQuantidadeController.clear();
       quantidadeConsumoController.clear();
       quantidadeBaixaController.clear();
+      quantidadeTransferenciaController.clear();
       observacaoController.clear();
       limparEstadoLocaisEstoque();
     });
@@ -5041,6 +5057,245 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
     );
 
     return confirmado == true;
+  }
+
+  Future<void> registrarTransferenciaEstoque() async {
+    final produto = produtoSelecionado;
+    final origem = localEstoqueSelecionado;
+    final destino = localEstoqueDestinoSelecionado;
+
+    if (produto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione um produto primeiro'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (!estoqueDetalhadoAtivo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Esta loja não possui estoque por local habilitado.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (origem == null || destino == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione o estoque de origem e o de destino'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final origemId = idLocalEstoque(origem);
+    final destinoId = idLocalEstoque(destino);
+
+    if (origemId == null || destinoId == null || origemId == destinoId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A origem e o destino devem ser locais diferentes'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final quantidadeTransferencia = lerQuantidadeDigitada(
+      quantidadeTransferenciaController.text,
+    );
+
+    if (quantidadeTransferencia == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Informe a quantidade que será transferida'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final erroValidacao = validarQuantidadeProduto(
+      produto: produto,
+      quantidadeInformada: quantidadeTransferencia,
+      permitirZero: false,
+    );
+
+    if (erroValidacao != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(erroValidacao), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final estoqueOrigem = quantidadeLocalEstoque(origem);
+    final estoqueDestino = quantidadeLocalEstoque(destino);
+    final unidade = unidadeProduto(produto);
+
+    if (quantidadeTransferencia > estoqueOrigem) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Saldo insuficiente na origem. Disponível: ${quantidade(estoqueOrigem)} $unidade.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final confirmado = await confirmarAlteracaoEstoque(
+      titulo: 'Confirmar transferência',
+      mensagem:
+          '${texto(produto['nome_produto'])}\n\n'
+          'Origem: ${nomeLocalEstoque(origem)}\n'
+          'Destino: ${nomeLocalEstoque(destino)}\n'
+          'Quantidade: ${quantidade(quantidadeTransferencia)} $unidade\n\n'
+          'Saldo da origem: ${quantidade(estoqueOrigem)} → ${quantidade(estoqueOrigem - quantidadeTransferencia)}\n'
+          'Saldo do destino: ${quantidade(estoqueDestino)} → ${quantidade(estoqueDestino + quantidadeTransferencia)}',
+      textoBotao: 'Transferir',
+    );
+
+    if (!confirmado || !mounted) {
+      return;
+    }
+
+    if (estoqueUpdateTokenAtivo && estoqueUpdateToken.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Token de estoque não carregado. Verifique a configuração da loja.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => gravando = true);
+
+    try {
+      final produtoId = produto['produto_id'];
+
+      if (produtoId == null) {
+        throw Exception('Produto sem produto_id.');
+      }
+
+      final resposta = await http
+          .post(
+            Uri.parse('${baseUrlApi()}/estoque/transferir'),
+            headers: headersUpdateEstoque(),
+            body: jsonEncode({
+              'produto_id': produtoId,
+              'local_origem_id': origemId,
+              'local_destino_id': destinoId,
+              'quantidade': quantidadeTransferencia,
+              'observacao': observacaoController.text.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      dynamic data;
+
+      try {
+        data = jsonDecode(resposta.body);
+      } catch (_) {
+        data = null;
+      }
+
+      if (resposta.statusCode < 200 || resposta.statusCode >= 300) {
+        final mensagemErro = data is Map && data['erro'] != null
+            ? data['erro'].toString()
+            : resposta.body;
+        throw Exception(mensagemErro);
+      }
+
+      final origemResposta = data is Map && data['origem'] is Map
+          ? Map<String, dynamic>.from(data['origem'])
+          : <String, dynamic>{};
+      final destinoResposta = data is Map && data['destino'] is Map
+          ? Map<String, dynamic>.from(data['destino'])
+          : <String, dynamic>{};
+      final estoqueOrigemNovo = numeroDinamico(
+        origemResposta['estoque_atual'] ??
+            estoqueOrigem - quantidadeTransferencia,
+      );
+      final estoqueDestinoNovo = numeroDinamico(
+        destinoResposta['estoque_atual'] ??
+            estoqueDestino + quantidadeTransferencia,
+      );
+      final observacaoDigitada = observacaoController.text.trim();
+      final descricaoTransferencia =
+          'Transferência de ${nomeLocalEstoque(origem)} para ${nomeLocalEstoque(destino)}'
+          '${observacaoDigitada.isEmpty ? '' : '. $observacaoDigitada'}';
+
+      final erroAuditoriaSaida = await registrarAuditoriaEstoque(
+        tipoMovimentacao: 'TRANSFERENCIA',
+        produto: produto,
+        estoqueAnterior: estoqueOrigem,
+        quantidadeInformada: quantidadeTransferencia,
+        quantidadeAlterada: -quantidadeTransferencia,
+        estoqueNovo: estoqueOrigemNovo,
+        unidade: unidade,
+        localEstoque: origem,
+        observacaoOverride: descricaoTransferencia,
+      );
+      final erroAuditoriaEntrada = await registrarAuditoriaEstoque(
+        tipoMovimentacao: 'TRANSFERENCIA',
+        produto: produto,
+        estoqueAnterior: estoqueDestino,
+        quantidadeInformada: quantidadeTransferencia,
+        quantidadeAlterada: quantidadeTransferencia,
+        estoqueNovo: estoqueDestinoNovo,
+        unidade: unidade,
+        localEstoque: destino,
+        observacaoOverride: descricaoTransferencia,
+      );
+
+      if (!mounted) return;
+
+      if (data is Map && data['estoque_total_app'] != null) {
+        produto['estoque_atual'] = data['estoque_total_app'];
+      }
+
+      quantidadeTransferenciaController.clear();
+      observacaoController.clear();
+      await carregarLocaisEstoqueProduto(produto);
+
+      if (!mounted) return;
+
+      final auditoriaOk =
+          erroAuditoriaSaida == null && erroAuditoriaEntrada == null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            auditoriaOk ? 'Transferência realizada com sucesso.' : 'Transferência realizada, mas a auditoria não foi gravada completamente.',
+          ),
+          backgroundColor: auditoriaOk ? Colors.green : Colors.orange,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erro ao transferir estoque: ${CentralService.mensagemErroUsuario(e)}',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => gravando = false);
+      }
+    }
   }
 
   Future<void> registrarEntradaEstoque() async {
@@ -5986,6 +6241,245 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
     );
   }
 
+  Widget seletorLocalTransferencia({
+    required Map<String, dynamic> produto,
+    required bool origem,
+  }) {
+    final unidade = unidadeProduto(produto);
+    final origemId = localEstoqueSelecionado == null
+        ? null
+        : idLocalEstoque(localEstoqueSelecionado!);
+    final selecionado = origem
+        ? localEstoqueSelecionado
+        : localEstoqueDestinoSelecionado;
+    final selecionadoId = selecionado == null
+        ? null
+        : idLocalEstoque(selecionado);
+    final locaisDisponiveis = locaisEstoque.where((local) {
+      final localId = idLocalEstoque(local);
+      if (localId == null || !localConsideradoNoApp(local)) {
+        return false;
+      }
+
+      return origem || localId != origemId;
+    }).toList();
+    final value =
+        locaisDisponiveis.any((local) => idLocalEstoque(local) == selecionadoId)
+        ? selecionadoId?.toString()
+        : null;
+
+    return DropdownButtonFormField<String>(
+      key: ValueKey(
+        '${origem ? 'origem' : 'destino'}-$value-${origem ? '' : origemId}',
+      ),
+      initialValue: value,
+      isExpanded: true,
+      menuMaxHeight: 320,
+      decoration: InputDecoration(
+        labelText: origem ? 'Estoque de origem' : 'Estoque de destino',
+        helperText: origem
+            ? 'O saldo será retirado deste local.'
+            : 'O saldo será adicionado neste local.',
+        prefixIcon: Icon(origem ? Icons.logout_outlined : Icons.login_outlined),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      items: locaisDisponiveis.map((local) {
+        final localId = idLocalEstoque(local)!;
+        final saldo = quantidade(quantidadeLocalEstoque(local));
+
+        return DropdownMenuItem<String>(
+          value: localId.toString(),
+          child: Text(
+            '${nomeLocalEstoque(local)} - $saldo $unidade',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      }).toList(),
+      onChanged: gravando
+          ? null
+          : (chave) {
+              if (chave == null) return;
+
+              final novoLocal = locaisEstoque.firstWhere(
+                (local) => idLocalEstoque(local)?.toString() == chave,
+              );
+
+              setState(() {
+                if (origem) {
+                  localEstoqueSelecionado = novoLocal;
+                  if (localEstoqueDestinoSelecionado != null &&
+                      idLocalEstoque(localEstoqueDestinoSelecionado!) ==
+                          idLocalEstoque(novoLocal)) {
+                    localEstoqueDestinoSelecionado = null;
+                  }
+                } else {
+                  localEstoqueDestinoSelecionado = novoLocal;
+                }
+              });
+            },
+    );
+  }
+
+  Widget painelTransferencia() {
+    final produto = produtoSelecionado;
+
+    if (produto == null) {
+      return avisoSelecioneProduto();
+    }
+
+    if (carregandoLocaisEstoque || erroLocaisEstoque != null) {
+      return painelBase(
+        titulo: 'Transferir entre estoques',
+        subtitulo: 'Carregando os locais disponíveis para o produto.',
+        children: [seletorLocalEstoque(produto)],
+      );
+    }
+
+    final locaisValidos = locaisEstoque
+        .where(
+          (local) =>
+              idLocalEstoque(local) != null && localConsideradoNoApp(local),
+        )
+        .toList();
+
+    if (locaisValidos.length < 2) {
+      return painelBase(
+        titulo: 'Transferir entre estoques',
+        subtitulo: 'Este produto precisa estar cadastrado em dois locais.',
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.30)),
+            ),
+            child: const Text(
+              'Não há dois locais de estoque disponíveis para transferir este produto.',
+            ),
+          ),
+        ],
+      );
+    }
+
+    final unidade = unidadeProduto(produto);
+    final fracionado = permiteQuantidadeFracionada(produto);
+    final origem = localEstoqueSelecionado;
+    final destino = localEstoqueDestinoSelecionado;
+
+    return painelBase(
+      titulo: 'Transferir entre estoques',
+      subtitulo:
+          'A quantidade será retirada da origem e adicionada ao destino.',
+      children: [
+        campoSomenteLeitura(
+          label: 'Produto',
+          valor: texto(produto['nome_produto']),
+        ),
+        const SizedBox(height: 12),
+        seletorLocalTransferencia(produto: produto, origem: true),
+        if (origem != null) ...[
+          const SizedBox(height: 8),
+          campoSomenteLeitura(
+            label: 'Saldo disponível na origem',
+            valor: '${quantidade(quantidadeLocalEstoque(origem))} $unidade',
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: IconButton.filledTonal(
+              tooltip: 'Inverter origem e destino',
+              onPressed: gravando || origem == null || destino == null
+                  ? null
+                  : () {
+                      setState(() {
+                        localEstoqueSelecionado = destino;
+                        localEstoqueDestinoSelecionado = origem;
+                      });
+                    },
+              icon: const Icon(Icons.swap_vert),
+            ),
+          ),
+        ),
+        seletorLocalTransferencia(produto: produto, origem: false),
+        if (destino != null) ...[
+          const SizedBox(height: 8),
+          campoSomenteLeitura(
+            label: 'Saldo atual no destino',
+            valor: '${quantidade(quantidadeLocalEstoque(destino))} $unidade',
+          ),
+        ],
+        const SizedBox(height: 12),
+        TextField(
+          controller: quantidadeTransferenciaController,
+          enabled: !gravando,
+          keyboardType: tipoTecladoQuantidade(produto),
+          inputFormatters: formatadoresQuantidade(produto),
+          decoration: InputDecoration(
+            labelText: 'Quantidade a transferir',
+            hintText: fracionado ? 'Ex: 1,500' : 'Ex: 10',
+            helperText: fracionado
+                ? 'Unidade $unidade aceita quantidade fracionada.'
+                : 'Unidade $unidade aceita apenas número inteiro.',
+            prefixIcon: const Icon(Icons.move_down_outlined),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: observacaoController,
+          enabled: !gravando,
+          maxLines: 3,
+          decoration: InputDecoration(
+            labelText: 'Observação',
+            hintText: 'Ex: reposição da área de vendas',
+            prefixIcon: const Icon(Icons.notes),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton.icon(
+            onPressed:
+                gravando ||
+                    carregandoTokenEstoque ||
+                    origem == null ||
+                    destino == null
+                ? null
+                : registrarTransferenciaEstoque,
+            icon: gravando
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.swap_horiz),
+            label: Text(
+              carregandoTokenEstoque
+                  ? 'Carregando autorização...'
+                  : 'Confirmar transferência',
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.cor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget painelEntrada() {
     final produto = produtoSelecionado;
 
@@ -6456,6 +6950,10 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
 
     if (widget.tipo == 'CORRECAO') {
       return painelCorrecao();
+    }
+
+    if (widget.tipo == 'TRANSFERENCIA') {
+      return painelTransferencia();
     }
 
     if (tipoBaixaEstoque) {

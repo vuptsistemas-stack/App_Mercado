@@ -11,6 +11,8 @@ class SessaoLoja {
       'app_preco_sessao_loja_persistida_v1';
 
   static int _versaoPersistencia = 0;
+  static Future<bool>? _renovacaoSessaoEmAndamento;
+  static const int _margemRenovacaoSegundos = 90;
 
   static const String _corPrimariaPadrao = '#E30613';
   static const String _corSecundariaPadrao = '#B8000D';
@@ -74,9 +76,11 @@ class SessaoLoja {
     'produtos_inativos',
     'alterar_preco',
     'balanco',
+    'lista_compras',
     'conferencia_notas',
     'estoque_entrada',
     'estoque_correcao',
+    'estoque_transferencia',
     'estoque_baixa_avaria',
     'estoque_baixa_validade',
     'estoque_abrir_pacote',
@@ -422,33 +426,60 @@ class SessaoLoja {
         mensagem.contains('session expired');
   }
 
-  static Future<bool> renovarSessaoLojaSePossivel() async {
-    final cliente = supabaseLoja;
+  static bool _sessaoPrecisaRenovar(Session? sessao) {
+    if (sessao == null) {
+      return true;
+    }
 
-    if (cliente == null) {
+    final expiraEm = sessao.expiresAt;
+    if (expiraEm == null) {
       return false;
     }
 
-    try {
-      late final AuthResponse resposta;
+    final agora = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return expiraEm - agora <= _margemRenovacaoSegundos;
+  }
 
-      try {
-        resposta = await cliente.auth.refreshSession();
-      } catch (_) {
-        final refreshToken = lojaRefreshToken?.trim() ?? '';
+  static Future<bool> renovarSessaoLojaSePossivel({bool forcar = false}) {
+    final cliente = supabaseLoja;
 
-        if (refreshToken.isEmpty) {
-          return false;
-        }
+    if (cliente == null) {
+      return Future.value(false);
+    }
 
-        final accessToken = lojaAccessToken?.trim();
-        resposta = await cliente.auth.setSession(
-          refreshToken,
-          accessToken: accessToken == null || accessToken.isEmpty
-              ? null
-              : accessToken,
-        );
+    sincronizarSessaoAtual();
+
+    if (!forcar && !_sessaoPrecisaRenovar(cliente.auth.currentSession)) {
+      return Future.value(true);
+    }
+
+    final renovacaoAtual = _renovacaoSessaoEmAndamento;
+    if (renovacaoAtual != null) {
+      return renovacaoAtual;
+    }
+
+    final renovacao = _renovarSessaoLoja(cliente);
+    _renovacaoSessaoEmAndamento = renovacao;
+
+    return renovacao.whenComplete(() {
+      if (identical(_renovacaoSessaoEmAndamento, renovacao)) {
+        _renovacaoSessaoEmAndamento = null;
       }
+    });
+  }
+
+  static Future<bool> _renovarSessaoLoja(SupabaseClient cliente) async {
+    try {
+      final refreshToken =
+          cliente.auth.currentSession?.refreshToken?.trim() ??
+          lojaRefreshToken?.trim() ??
+          '';
+
+      if (refreshToken.isEmpty) {
+        return false;
+      }
+
+      final resposta = await cliente.auth.refreshSession(refreshToken);
 
       final sessao = resposta.session ?? cliente.auth.currentSession;
       final usuario = resposta.user ?? cliente.auth.currentUser;

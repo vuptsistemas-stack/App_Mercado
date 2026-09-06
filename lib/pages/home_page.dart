@@ -14,6 +14,7 @@ import '../services/loja_funcionamento_service.dart';
 import '../services/ofertas_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../utils/mensagem_erro.dart';
+import '../widgets/imagem_produto_network.dart';
 import 'carrinho_page.dart';
 import '../services/app_tema_service.dart';
 
@@ -794,18 +795,27 @@ class _HomePageState extends State<HomePage> {
 
         return Padding(
           padding: const EdgeInsets.all(6),
-          child: CachedNetworkImage(
-            imageUrl: imagemUrl,
+          child: ImagemProdutoNetwork(
+            imagemUrl: imagemUrl,
+            ean: produto.ean,
+            nomeProduto: produto.nome,
+            imagemUrlCadastroProdutoApp:
+                produto.produtoAppId.trim().isNotEmpty
+                ? produto.imagemUrl
+                : '',
             fit: BoxFit.contain,
-            placeholder: (context, url) => const Center(
+            placeholder: const Center(
               child: SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            errorWidget: (context, url, error) =>
-                Icon(Icons.shopping_basket, size: 34, color: corPrimariaAtual),
+            fallback: Icon(
+              Icons.shopping_basket,
+              size: 34,
+              color: corPrimariaAtual,
+            ),
           ),
         );
       },
@@ -1403,16 +1413,22 @@ class _HomePageState extends State<HomePage> {
                             return InteractiveViewer(
                               minScale: 1,
                               maxScale: 2.5,
-                              child: CachedNetworkImage(
-                                imageUrl: imagemUrl,
+                              child: ImagemProdutoNetwork(
+                                imagemUrl: imagemUrl,
+                                ean: produto.ean,
+                                nomeProduto: produto.nome,
+                                imagemUrlCadastroProdutoApp:
+                                    produto.produtoAppId.trim().isNotEmpty
+                                    ? produto.imagemUrl
+                                    : '',
                                 fit: BoxFit.contain,
-                                placeholder: (context, url) => const SizedBox(
+                                placeholder: const SizedBox(
                                   height: 130,
                                   child: Center(
                                     child: CircularProgressIndicator(),
                                   ),
                                 ),
-                                errorWidget: (context, url, error) => SizedBox(
+                                fallback: SizedBox(
                                   height: 130,
                                   child: Center(
                                     child: Icon(
@@ -1801,17 +1817,24 @@ class _HomePageState extends State<HomePage> {
           return Icon(Icons.shopping_basket, size: 76, color: corPrimariaAtual);
         }
 
-        return CachedNetworkImage(
-          imageUrl: imagemUrl,
+        return ImagemProdutoNetwork(
+          imagemUrl: imagemUrl,
+          ean: produto.ean,
+          nomeProduto: produto.nome,
+          imagemUrlCadastroProdutoApp:
+              produto.produtoAppId.trim().isNotEmpty ? produto.imagemUrl : '',
           fit: BoxFit.contain,
-          placeholder: (context, url) => Center(
+          placeholder: Center(
             child: CircularProgressIndicator(
               color: corPrimariaAtual,
               strokeWidth: 2,
             ),
           ),
-          errorWidget: (context, url, error) =>
-              Icon(Icons.shopping_basket, size: 76, color: corPrimariaAtual),
+          fallback: Icon(
+            Icons.shopping_basket,
+            size: 76,
+            color: corPrimariaAtual,
+          ),
         );
       },
     );
@@ -3053,17 +3076,23 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
 
         return Padding(
           padding: const EdgeInsets.all(6),
-          child: CachedNetworkImage(
-            imageUrl: imagemUrl,
+          child: ImagemProdutoNetwork(
+            imagemUrl: imagemUrl,
+            ean: produto.ean,
+            nomeProduto: produto.nome,
+            imagemUrlCadastroProdutoApp:
+                produto.produtoAppId.trim().isNotEmpty
+                ? produto.imagemUrl
+                : '',
             fit: BoxFit.contain,
-            placeholder: (context, url) => const Center(
+            placeholder: const Center(
               child: SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            errorWidget: (context, url, error) => Icon(
+            fallback: Icon(
               Icons.shopping_basket,
               size: 34,
               color: widget.corPrimaria,
@@ -3305,16 +3334,22 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
                             return InteractiveViewer(
                               minScale: 1,
                               maxScale: 2.5,
-                              child: CachedNetworkImage(
-                                imageUrl: imagemUrl,
+                              child: ImagemProdutoNetwork(
+                                imagemUrl: imagemUrl,
+                                ean: produto.ean,
+                                nomeProduto: produto.nome,
+                                imagemUrlCadastroProdutoApp:
+                                    produto.produtoAppId.trim().isNotEmpty
+                                    ? produto.imagemUrl
+                                    : '',
                                 fit: BoxFit.contain,
-                                placeholder: (context, url) => const SizedBox(
+                                placeholder: const SizedBox(
                                   height: 130,
                                   child: Center(
                                     child: CircularProgressIndicator(),
                                   ),
                                 ),
-                                errorWidget: (context, url, error) => SizedBox(
+                                fallback: SizedBox(
                                   height: 130,
                                   child: Center(
                                     child: Icon(

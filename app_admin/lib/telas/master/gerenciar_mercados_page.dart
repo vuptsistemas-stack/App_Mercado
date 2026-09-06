@@ -975,8 +975,7 @@ class _ModulosLojaPageState extends State<ModulosLojaPage> {
     {
       'codigo': 'produtos_inativos',
       'nome': 'Produtos inativos',
-      'descricao':
-          'Permite consultar produtos inativos quando o item não for encontrado.',
+      'descricao': 'Permite consultar produtos inativos quando o item não for encontrado.',
     },
     {
       'codigo': 'consulta_item',
@@ -990,8 +989,13 @@ class _ModulosLojaPageState extends State<ModulosLojaPage> {
     },
     {
       'codigo': 'balanco',
-      'nome': 'Balanço',
-      'descricao': 'Coletar itens e gerar arquivo TXT.',
+      'nome': 'Coletor/Balanço',
+      'descricao': 'Criar coletas ou balanços e gerar TXT no servidor.',
+    },
+    {
+      'codigo': 'lista_compras',
+      'nome': 'Lista de compras',
+      'descricao': 'Planejar pedidos por fornecedor e exportar Excel.',
     },
     {
       'codigo': 'conferencia_notas',
@@ -1012,6 +1016,11 @@ class _ModulosLojaPageState extends State<ModulosLojaPage> {
       'codigo': 'estoque_correcao',
       'nome': 'Correção de estoque',
       'descricao': 'Corrigir saldo de estoque.',
+    },
+    {
+      'codigo': 'estoque_transferencia',
+      'nome': 'Transferência entre estoques',
+      'descricao': 'Transferir produtos entre locais de estoque.',
     },
     {
       'codigo': 'estoque_baixa_avaria',
@@ -3400,8 +3409,7 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaLogo() {
     return cardImagemEdicao(
       titulo: 'Logo do app Admin/login',
-      descricaoSemImagem:
-          'Nenhuma logo Admin cadastrada. Essa imagem aparece dentro do app Admin e na tela inicial/login.',
+      descricaoSemImagem: 'Nenhuma logo Admin cadastrada. Essa imagem aparece dentro do app Admin e na tela inicial/login.',
       descricaoImagemAtual:
           'Logo Admin atual cadastrada. Toque em Trocar para escolher outra.',
       descricaoImagemNova: 'Nova logo Admin selecionada para envio.',
@@ -3418,8 +3426,7 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaLogoMercado() {
     return cardImagemEdicao(
       titulo: 'Logo do app Mercado/Cliente',
-      descricaoSemImagem:
-          'Nenhuma logo Mercado cadastrada. Essa imagem aparece no app dos clientes.',
+      descricaoSemImagem: 'Nenhuma logo Mercado cadastrada. Essa imagem aparece no app dos clientes.',
       descricaoImagemAtual:
           'Logo Mercado atual cadastrada. Toque em Trocar para escolher outra.',
       descricaoImagemNova: 'Nova logo Mercado selecionada para envio.',
@@ -3436,8 +3443,7 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaSplashLogo() {
     return cardImagemEdicao(
       titulo: 'Splash fixo ao abrir o app',
-      descricaoSemImagem:
-          'Nenhum splash cadastrado. Essa imagem será aplicada pelo script no APK.',
+      descricaoSemImagem: 'Nenhum splash cadastrado. Essa imagem será aplicada pelo script no APK.',
       descricaoImagemAtual:
           'Splash atual cadastrado. Toque em Trocar para escolher outro.',
       descricaoImagemNova: 'Novo splash selecionado para envio.',
@@ -3454,10 +3460,8 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaSplashLogoMercado() {
     return cardImagemEdicao(
       titulo: 'Splash do app Mercado/Cliente',
-      descricaoSemImagem:
-          'Nenhum splash Mercado cadastrado. Essa imagem será aplicada pelo script no APK Mercado/Cliente.',
-      descricaoImagemAtual:
-          'Splash Mercado atual cadastrado. Toque em Trocar para escolher outro.',
+      descricaoSemImagem: 'Nenhum splash Mercado cadastrado. Essa imagem será aplicada pelo script no APK Mercado/Cliente.',
+      descricaoImagemAtual: 'Splash Mercado atual cadastrado. Toque em Trocar para escolher outro.',
       descricaoImagemNova: 'Novo splash do app Mercado selecionado para envio.',
       urlAtual: mercadoSplashLogoUrlAtual,
       arquivoSelecionado: mercadoSplashLogoSelecionada,
@@ -3472,8 +3476,7 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaIconeApp() {
     return cardImagemEdicao(
       titulo: 'Ícone do app Admin Android',
-      descricaoSemImagem:
-          'Nenhum ícone Admin cadastrado. Essa imagem será usada como ícone do APK Admin.',
+      descricaoSemImagem: 'Nenhum ícone Admin cadastrado. Essa imagem será usada como ícone do APK Admin.',
       descricaoImagemAtual:
           'Ícone Admin atual cadastrado. Toque em Trocar para escolher outro.',
       descricaoImagemNova: 'Novo ícone do app Admin selecionado para envio.',
@@ -3490,10 +3493,8 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
   Widget areaIconeAppMercado() {
     return cardImagemEdicao(
       titulo: 'Ícone do app Mercado Android',
-      descricaoSemImagem:
-          'Nenhum ícone Mercado cadastrado. Essa imagem será usada como ícone do APK Mercado/Cliente.',
-      descricaoImagemAtual:
-          'Ícone Mercado atual cadastrado. Toque em Trocar para escolher outro.',
+      descricaoSemImagem: 'Nenhum ícone Mercado cadastrado. Essa imagem será usada como ícone do APK Mercado/Cliente.',
+      descricaoImagemAtual: 'Ícone Mercado atual cadastrado. Toque em Trocar para escolher outro.',
       descricaoImagemNova: 'Novo ícone do app Mercado selecionado para envio.',
       urlAtual: mercadoAppIconeUrlAtual,
       arquivoSelecionado: mercadoIconeAppSelecionado,
@@ -4577,8 +4578,7 @@ class _EditarMercadoPageState extends State<EditarMercadoPage> {
       children: [
         cardSecaoFormulario(
           titulo: 'Configuração dos APKs',
-          subtitulo:
-              'Separe o APK Admin do APK Mercado/Cliente e mantenha packages únicos.',
+          subtitulo: 'Separe o APK Admin do APK Mercado/Cliente e mantenha packages únicos.',
           icone: Icons.android,
           cor: Colors.teal,
           children: [areaApkPersonalizado()],

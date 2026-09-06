@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/app_navigator.dart';
+import '../../services/central_service.dart';
+import '../../services/lista_compras_service.dart';
 import '../../services/sessao_loja.dart';
 
 class ResultadoConsultaItemPage extends StatefulWidget {
@@ -22,6 +24,13 @@ class _ResultadoConsultaItemPageState extends State<ResultadoConsultaItemPage> {
   late Map<String, dynamic> produto;
   String? imagemUrl;
   bool carregandoImagem = true;
+  bool adicionandoListaCompras = false;
+  bool produtoNaListaCompras = false;
+
+  bool get podeAdicionarListaCompras =>
+      SessaoLoja.usuarioAdminLoja ||
+      SessaoLoja.usuarioAcessoTotal ||
+      SessaoLoja.temPermissao('lista_compras');
 
   @override
   void initState() {
@@ -104,6 +113,40 @@ class _ResultadoConsultaItemPageState extends State<ResultadoConsultaItemPage> {
 
     final partes = preco.toStringAsFixed(2).replaceAll('.', ',').split(',');
     return '${partes[0]},${partes[1]}';
+  }
+
+  Future<void> adicionarListaCompras() async {
+    if (adicionandoListaCompras || produtoNaListaCompras) return;
+
+    setState(() => adicionandoListaCompras = true);
+    try {
+      final resposta = await ListaComprasService().adicionarProduto(produto);
+      if (!mounted) return;
+      final inserido = resposta['inserido'] == true;
+      setState(() => produtoNaListaCompras = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            inserido
+                ? 'Produto adicionado à lista de compras.'
+                : 'Este produto já estava na lista de compras.',
+          ),
+          backgroundColor: vermelho,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erro ao adicionar na lista: ${CentralService.mensagemErroUsuario(e)}',
+          ),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => adicionandoListaCompras = false);
+    }
   }
 
   Future<void> buscarImagemCentral() async {
@@ -368,6 +411,54 @@ class _ResultadoConsultaItemPageState extends State<ResultadoConsultaItemPage> {
     );
   }
 
+  Widget botaoListaCompras() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: adicionandoListaCompras || produtoNaListaCompras
+              ? null
+              : adicionarListaCompras,
+          icon: adicionandoListaCompras
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(
+                  produtoNaListaCompras
+                      ? Icons.check_circle
+                      : Icons.playlist_add,
+                ),
+          label: Text(
+            produtoNaListaCompras
+                ? 'Produto na lista de compras'
+                : 'Adicionar à lista de compras',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: produtoNaListaCompras
+                ? Colors.green.shade700
+                : vermelho,
+            disabledBackgroundColor: produtoNaListaCompras
+                ? Colors.green.shade700
+                : vermelho.withValues(alpha: 0.65),
+            disabledForegroundColor: Colors.white,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -389,6 +480,7 @@ class _ResultadoConsultaItemPageState extends State<ResultadoConsultaItemPage> {
                 nomeProdutoWidget(),
                 const SizedBox(height: 6),
                 precoWidget(),
+                if (podeAdicionarListaCompras) botaoListaCompras(),
               ],
             );
 

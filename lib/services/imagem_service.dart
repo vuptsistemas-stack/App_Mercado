@@ -15,6 +15,7 @@ class ImagemService {
 
   /// Nome da Edge Function na Supabase Central.
   static const String _functionBuscarImagem = 'buscar-imagem-produto';
+  static const String _bucketImagensProdutos = 'produtos-imagens-central';
 
   /// Cache em memória da sessão atual.
   ///
@@ -38,17 +39,16 @@ class ImagemService {
     required String ean,
     required String nomeProduto,
     String imagemUrlCadastroProdutoApp = '',
+    bool forcarAtualizacao = false,
+    String urlImagemQuebrada = '',
   }) async {
     final eanLimpo = ean.trim();
     final nomeLimpo = nomeProduto.trim();
     final imagemCadastroProdutoApp = imagemUrlCadastroProdutoApp.trim();
-    final temImagemCadastroProdutoApp = _urlImagemValida(
-      imagemCadastroProdutoApp,
-    );
-
-    if (_eanInternoLoja(eanLimpo) && temImagemCadastroProdutoApp) {
-      return imagemCadastroProdutoApp;
-    }
+    final imagemQuebrada = urlImagemQuebrada.trim();
+    final temImagemCadastroProdutoApp =
+        _urlImagemValida(imagemCadastroProdutoApp) &&
+        imagemCadastroProdutoApp != imagemQuebrada;
 
     if (eanLimpo.isEmpty && nomeLimpo.isEmpty) {
       return temImagemCadastroProdutoApp ? imagemCadastroProdutoApp : null;
@@ -56,27 +56,55 @@ class ImagemService {
 
     final chaveCache = _montarChaveCache(ean: eanLimpo, nomeProduto: nomeLimpo);
 
+    if (forcarAtualizacao) {
+      _cacheMemoria.remove(chaveCache);
+      await _removerImagemDoCacheLocal(chaveCache);
+    }
+
+    var imagemFallbackCacheLocal = '';
+
     String? resolverFallbackProdutoApp(String? imagemCentral) {
       if (imagemCentral != null && imagemCentral.trim().isNotEmpty) {
         return imagemCentral;
       }
 
-      return temImagemCadastroProdutoApp ? imagemCadastroProdutoApp : null;
+      if (temImagemCadastroProdutoApp) {
+        return imagemCadastroProdutoApp;
+      }
+
+      return _urlImagemValida(imagemFallbackCacheLocal)
+          ? imagemFallbackCacheLocal
+          : null;
     }
 
     // 1) Se já buscou nessa abertura do app, retorna direto.
     // Isso inclui null para produto sem imagem.
     if (_cacheMemoria.containsKey(chaveCache)) {
-      return resolverFallbackProdutoApp(_cacheMemoria[chaveCache]);
+      final imagemMemoria = _cacheMemoria[chaveCache];
+
+      if (imagemMemoria == null || _urlStorageCentralOtimizada(imagemMemoria)) {
+        return resolverFallbackProdutoApp(imagemMemoria);
+      }
+
+      imagemFallbackCacheLocal = imagemMemoria;
+      _cacheMemoria.remove(chaveCache);
     }
 
-    // 2) Se já tem imagem local válida, usa por até 7 dias sem chamar function.
+    // 2) Se já tem imagem local válida, usa por até 3 dias sem chamar function.
     final imagemLocal = await _buscarImagemNoCacheLocal(chaveCache);
 
-    if (imagemLocal != null) {
+    if (imagemLocal != null && _urlStorageCentralOtimizada(imagemLocal)) {
       _cacheMemoria[chaveCache] = imagemLocal;
       return imagemLocal;
     }
+
+    if (imagemLocal != null && imagemLocal != imagemQuebrada) {
+      imagemFallbackCacheLocal = imagemLocal;
+    }
+
+    final imagemCandidataMigracao = temImagemCadastroProdutoApp
+        ? imagemCadastroProdutoApp
+        : imagemFallbackCacheLocal;
 
     // 3) Se já existe uma busca em andamento para esse produto, aguarda a mesma.
     final buscaExistente = _buscasEmAndamento[chaveCache];
@@ -87,28 +115,48 @@ class ImagemService {
     }
 
     // 4) Busca apenas conforme o produto aparece na tela, igual hoje.
-    final busca = temImagemCadastroProdutoApp
-        ? _buscarImagemProdutoCentral(ean: eanLimpo, nomeProduto: nomeLimpo)
-        : _buscarImagemProdutoPorRegra(ean: eanLimpo, nomeProduto: nomeLimpo);
+    final busca = forcarAtualizacao
+        ? _buscarImagemProdutoCentral(
+            ean: eanLimpo,
+            nomeProduto: nomeLimpo,
+            imagemUrlCadastroProdutoApp: imagemCandidataMigracao,
+            ignorarCacheCentral: true,
+            salvarNoCentral: !_eanInternoLoja(eanLimpo),
+          )
+        : temImagemCadastroProdutoApp
+        ? _buscarImagemProdutoCentral(
+            ean: eanLimpo,
+            nomeProduto: nomeLimpo,
+            imagemUrlCadastroProdutoApp: imagemCandidataMigracao,
+          )
+        : _buscarImagemProdutoPorRegra(
+            ean: eanLimpo,
+            nomeProduto: nomeLimpo,
+            imagemUrlCadastroProdutoApp: imagemCandidataMigracao,
+          );
 
     _buscasEmAndamento[chaveCache] = busca;
 
     try {
       final resultado = await busca;
 
+      final resultadoValido = resultado?.trim() == imagemQuebrada
+          ? null
+          : resultado;
+
       // Guarda em memória até null.
       // Assim produto sem imagem só tenta uma vez por abertura do app.
-      _cacheMemoria[chaveCache] = resultado;
+      _cacheMemoria[chaveCache] = resultadoValido;
 
-      if (resultado != null && resultado.trim().isNotEmpty) {
-        await _salvarImagemNoCacheLocal(chaveCache, resultado);
+      if (resultadoValido != null && resultadoValido.trim().isNotEmpty) {
+        await _salvarImagemNoCacheLocal(chaveCache, resultadoValido);
       } else {
         // Se não encontrou, não salva cache negativo em disco.
         // Na próxima abertura do app, ele tenta novamente uma vez.
         await _removerImagemDoCacheLocal(chaveCache);
       }
 
-      return resolverFallbackProdutoApp(resultado);
+      return resolverFallbackProdutoApp(resultadoValido);
     } finally {
       _buscasEmAndamento.remove(chaveCache);
     }
@@ -117,23 +165,29 @@ class ImagemService {
   static Future<String?> _buscarImagemProdutoPorRegra({
     required String ean,
     required String nomeProduto,
+    String imagemUrlCadastroProdutoApp = '',
   }) async {
     if (_eanInternoLoja(ean)) {
       final imagemLoja = await _buscarImagemProdutoBaseLoja(ean: ean);
-
-      if (imagemLoja != null && imagemLoja.trim().isNotEmpty) {
-        return imagemLoja;
-      }
-
-      return _buscarImagemProdutoCentral(
+      final imagemCandidata = imagemLoja?.trim().isNotEmpty == true
+          ? imagemLoja!.trim()
+          : imagemUrlCadastroProdutoApp;
+      final imagemCentral = await _buscarImagemProdutoCentral(
         ean: ean,
         nomeProduto: nomeProduto,
+        imagemUrlCadastroProdutoApp: imagemCandidata,
         ignorarCacheCentral: true,
         salvarNoCentral: false,
       );
+
+      return imagemCentral ?? imagemLoja;
     }
 
-    return _buscarImagemProdutoCentral(ean: ean, nomeProduto: nomeProduto);
+    return _buscarImagemProdutoCentral(
+      ean: ean,
+      nomeProduto: nomeProduto,
+      imagemUrlCadastroProdutoApp: imagemUrlCadastroProdutoApp,
+    );
   }
 
   static Future<String?> _buscarImagemProdutoBaseLoja({
@@ -195,6 +249,7 @@ class ImagemService {
   static Future<String?> _buscarImagemProdutoCentral({
     required String ean,
     required String nomeProduto,
+    String imagemUrlCadastroProdutoApp = '',
     bool ignorarCacheCentral = false,
     bool salvarNoCentral = true,
   }) async {
@@ -216,6 +271,8 @@ class ImagemService {
               'nome': nomeProduto,
               'descricao': nomeProduto,
               'produto_nome': nomeProduto,
+              'imagem_url_cadastro_produto_app':
+                  imagemUrlCadastroProdutoApp,
 
               // Identificação da loja.
               'mercado_id': app_config.AppMercadoConfig.mercadoId,
@@ -271,6 +328,22 @@ class ImagemService {
     final texto = valor.trim();
 
     return texto.startsWith('http://') || texto.startsWith('https://');
+  }
+
+  static bool _urlStorageCentralOtimizada(String valor) {
+    final uri = Uri.tryParse(valor.trim());
+    final central = Uri.tryParse(
+      app_config.AppMercadoConfig.centralSupabaseUrl.trim(),
+    );
+
+    if (uri == null || central == null || uri.host != central.host) {
+      return false;
+    }
+
+    return uri.path.contains(
+          '/storage/v1/object/public/$_bucketImagensProdutos/',
+        ) &&
+        uri.path.toLowerCase().endsWith('.webp');
   }
 
   static String _chaveUrl(String chaveCache) {
@@ -407,7 +480,7 @@ class ImagemService {
     _buscasEmAndamento.clear();
   }
 
-  /// Use apenas em testes/manutenção para limpar também o cache de 7 dias.
+  /// Use apenas em testes/manutenção para limpar também o cache de 3 dias.
   static Future<void> limparCacheLocal() async {
     _cacheMemoria.clear();
     _buscasEmAndamento.clear();

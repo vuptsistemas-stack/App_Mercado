@@ -763,9 +763,8 @@ class _LoginCentralPageState extends State<LoginCentralPage> {
     final senha = senhaController.text.trim();
 
     if (loginDigitado.isEmpty || senha.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Informe login e senha')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Informe login e senha')));
       return;
     }
 
@@ -843,9 +842,11 @@ class _LoginCentralPageState extends State<LoginCentralPage> {
       'consulta_preco',
       'produtos_inativos',
       'balanco',
+      'lista_compras',
       'conferencia_notas',
       'estoque_entrada',
       'estoque_correcao',
+      'estoque_transferencia',
       'estoque_baixa_avaria',
       'estoque_baixa_validade',
       'estoque_abrir_pacote',
@@ -1070,9 +1071,8 @@ class _LoginCentralPageState extends State<LoginCentralPage> {
                           border: Border.all(color: const Color(0xFFE4E7EC)),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(
-                                0xFF101828,
-                              ).withValues(alpha: 0.08),
+                              color: const Color(0xFF101828)
+                                  .withValues(alpha: 0.08),
                               blurRadius: 28,
                               offset: const Offset(0, 14),
                             ),

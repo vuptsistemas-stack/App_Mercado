@@ -1,14 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-
-import '../../services/central_service.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../services/central_service.dart';
 import '../../services/sessao_loja.dart';
 import 'scanner.dart';
 
@@ -32,6 +28,8 @@ class _BalancoPageState extends State<BalancoPage> {
   List<Map<String, dynamic>> resultados = [];
 
   String? listaAtualId;
+  String tipoDocumentoAtual = '';
+  String nomeArquivoAtual = '';
   DateTime? filtroDataColetas;
   String filtroStatusColetas = 'TODOS';
   _TelaBalanco telaAtual = _TelaBalanco.menu;
@@ -41,6 +39,8 @@ class _BalancoPageState extends State<BalancoPage> {
   bool salvandoLista = false;
   bool carregandoListas = false;
   bool balancoAtivo = true;
+  bool tokenApiCarregado = false;
+  String tokenApi = '';
 
   static Color get cor => SessaoLoja.corPrimaria;
   static Color get fundo => SessaoLoja.corFundo;
@@ -117,8 +117,32 @@ class _BalancoPageState extends State<BalancoPage> {
   }
 
   Future<void> inicializarBalanco() async {
+    await carregarTokenApiSeNecessario();
     await carregarListaAberta();
     await carregarListasAdmin();
+  }
+
+  Future<void> carregarTokenApiSeNecessario() async {
+    if (tokenApiCarregado) return;
+    tokenApiCarregado = true;
+
+    final mercadoId = SessaoLoja.mercadoId?.trim();
+    if (mercadoId == null || mercadoId.isEmpty) return;
+
+    try {
+      final conexao = await CentralService().buscarConexaoMercado(mercadoId);
+      tokenApi = conexao['estoque_update_token']?.toString().trim() ?? '';
+    } catch (_) {
+      tokenApi = '';
+    }
+  }
+
+  Map<String, String> headersApi() {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (tokenApi.isNotEmpty) {
+      headers['x-api-key'] = tokenApi;
+    }
+    return headers;
   }
 
   Future<void> carregarListaAberta() async {
@@ -131,7 +155,7 @@ class _BalancoPageState extends State<BalancoPage> {
     try {
       final lista = await supabase
           .from('balanco_listas')
-          .select('id, status')
+          .select('id, status, tipo_documento, nome_arquivo_informado')
           .eq('mercado_id', mercadoIdObrigatorio)
           .eq('criado_por_user_id', userId)
           .eq('status', 'ABERTO')
@@ -140,6 +164,13 @@ class _BalancoPageState extends State<BalancoPage> {
           .maybeSingle();
 
       if (lista == null) {
+        if (!mounted) return;
+        setState(() {
+          listaAtualId = null;
+          tipoDocumentoAtual = '';
+          nomeArquivoAtual = '';
+          itens.clear();
+        });
         return;
       }
 
@@ -158,6 +189,10 @@ class _BalancoPageState extends State<BalancoPage> {
 
       setState(() {
         listaAtualId = listaId;
+        tipoDocumentoAtual = normalizarTipoDocumento(
+          texto(lista['tipo_documento'], fallback: 'BALANCO'),
+        );
+        nomeArquivoAtual = texto(lista['nome_arquivo_informado']);
         balancoAtivo = true;
         itens
           ..clear()
@@ -186,7 +221,7 @@ class _BalancoPageState extends State<BalancoPage> {
       var consulta = supabase
           .from('balanco_listas')
           .select(
-            'id, status, total_itens, criado_por_nome, criado_por_login, criado_em, enviado_em, gerado_em, arquivo_nome',
+            'id, status, tipo_documento, nome_arquivo_informado, total_itens, criado_por_nome, criado_por_login, criado_em, enviado_em, gerado_em, arquivo_nome',
           )
           .eq('mercado_id', mercadoIdObrigatorio)
           .inFilter('status', ['ENVIADO', 'GERADO']);
@@ -227,6 +262,10 @@ class _BalancoPageState extends State<BalancoPage> {
               (item) => _ListaBalancoResumo(
                 id: texto(item['id']),
                 status: texto(item['status']),
+                tipoDocumento: normalizarTipoDocumento(
+                  texto(item['tipo_documento'], fallback: 'BALANCO'),
+                ),
+                nomeArquivoInformado: texto(item['nome_arquivo_informado']),
                 totalItens: int.tryParse(texto(item['total_itens'])) ?? 0,
                 criadoPor: texto(
                   item['criado_por_nome'] ?? item['criado_por_login'],
@@ -263,6 +302,10 @@ class _BalancoPageState extends State<BalancoPage> {
       throw Exception('Usuario da loja nao identificado.');
     }
 
+    if (!tipoDocumentoValido(tipoDocumentoAtual) || nomeArquivoAtual.isEmpty) {
+      throw Exception('Informe o tipo e o nome do arquivo antes de continuar.');
+    }
+
     final dados = {
       'mercado_id': mercadoIdObrigatorio,
       'mercado_codigo': mercadoCodigoObrigatorio,
@@ -271,6 +314,8 @@ class _BalancoPageState extends State<BalancoPage> {
       'criado_por_login': SessaoLoja.usuarioLogin,
       'criado_por_perfil': SessaoLoja.usuarioPerfil,
       'status': 'ABERTO',
+      'tipo_documento': tipoDocumentoAtual,
+      'nome_arquivo_informado': nomeArquivoAtual,
       'total_itens': 0,
     };
 
@@ -449,26 +494,37 @@ class _BalancoPageState extends State<BalancoPage> {
     return '${dois(data.day)}/${dois(data.month)}/${data.year} ${dois(data.hour)}:${dois(data.minute)}';
   }
 
-  String dataArquivo(DateTime data) {
-    String dois(int numero) => numero.toString().padLeft(2, '0');
-    return '${data.year}${dois(data.month)}${dois(data.day)}_${dois(data.hour)}${dois(data.minute)}';
+  bool tipoDocumentoValido(String valor) {
+    return valor == 'COLETA' || valor == 'BALANCO';
   }
 
-  String nomeArquivoSeguro(String valor) {
-    final limpo = valor
-        .trim()
-        .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_')
-        .replaceAll(RegExp(r'\s+'), '_')
-        .replaceAll(RegExp(r'_+'), '_');
-
-    return limpo.isEmpty ? 'Usuario' : limpo;
+  String normalizarTipoDocumento(String valor) {
+    return valor.trim().toUpperCase() == 'COLETA' ? 'COLETA' : 'BALANCO';
   }
 
-  String nomeArquivoBalanco() {
-    final usuario = nomeArquivoSeguro(usuarioNomeAtual);
-    final agora = DateTime.now();
+  String rotuloTipoDocumento(String valor) {
+    return normalizarTipoDocumento(valor) == 'COLETA' ? 'Coleta' : 'Balanço';
+  }
 
-    return '${usuario}_APP_${dataArquivo(agora)}.txt';
+  String normalizarNomeArquivo(String valor) {
+    final nome = valor.trim();
+    if (nome.toLowerCase().endsWith('.txt')) return nome;
+    return '$nome.txt';
+  }
+
+  String? validarNomeArquivo(String valor) {
+    final nome = valor.trim();
+    if (nome.isEmpty) return 'Informe o nome do arquivo.';
+    if (nome == '.' || nome == '..' || nome.startsWith('.')) {
+      return 'Informe um nome de arquivo válido.';
+    }
+    if (RegExp(r'[\\/:*?"<>|]').hasMatch(nome)) {
+      return 'O nome contém caracteres não permitidos.';
+    }
+    if (normalizarNomeArquivo(nome).length > 180) {
+      return 'Use um nome com no máximo 176 caracteres.';
+    }
+    return null;
   }
 
   String dataFiltroTexto(DateTime? data) {
@@ -502,7 +558,7 @@ class _BalancoPageState extends State<BalancoPage> {
 
   Future<void> buscarProduto() async {
     if (!balancoAtivo) {
-      mostrarMensagem('Esta lista ja foi gerada. Inicie um novo balanco.');
+      mostrarMensagem('Esta lista já foi gerada. Inicie uma nova lista.');
       return;
     }
 
@@ -554,9 +610,9 @@ class _BalancoPageState extends State<BalancoPage> {
       }
 
       final data = jsonDecode(response.body);
-      final lista = extrairLista(
-        data,
-      ).map((item) => Map<String, dynamic>.from(item)).toList();
+      final lista = extrairLista(data)
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
 
       if (lista.length == 1) {
         await abrirQuantidade(lista.first);
@@ -718,7 +774,7 @@ class _BalancoPageState extends State<BalancoPage> {
 
   Future<void> abrirScanner() async {
     if (!balancoAtivo) {
-      mostrarMensagem('Esta lista ja foi gerada. Inicie um novo balanco.');
+      mostrarMensagem('Esta lista já foi gerada. Inicie uma nova lista.');
       return;
     }
 
@@ -736,30 +792,71 @@ class _BalancoPageState extends State<BalancoPage> {
     );
   }
 
-  Future<String> compartilharTxt(List<_ItemBalanco> itensTxt) async {
-    final linhas = itensTxt
+  String conteudoTxt(List<_ItemBalanco> itensTxt) {
+    return itensTxt
         .map((item) => '${item.ean};${quantidadeTxt(item.quantidade)}')
         .join('\n');
-    final dir = await getTemporaryDirectory();
-    final nomeArquivo = nomeArquivoBalanco();
-    final arquivo = File('${dir.path}/$nomeArquivo');
-    await arquivo.writeAsString(linhas);
+  }
 
-    await SharePlus.instance.share(
-      ShareParams(text: 'Balanco de estoque', files: [XFile(arquivo.path)]),
-    );
+  Future<String> enviarTxtServidor({
+    required String listaId,
+    required String tipoDocumento,
+    required String nomeArquivo,
+    required List<_ItemBalanco> itensTxt,
+  }) async {
+    final api = apiBaseUrl;
+    if (api == null) {
+      throw Exception('Nenhuma API configurada para esta loja.');
+    }
 
-    return nomeArquivo;
+    await carregarTokenApiSeNecessario();
+
+    final response = await http
+        .post(
+          Uri.parse('$api/coletor-balanco/arquivo'),
+          headers: headersApi(),
+          body: jsonEncode({
+            'nome_arquivo': nomeArquivo,
+            'tipo_documento': tipoDocumento,
+            'conteudo': conteudoTxt(itensTxt),
+            'lista_id': listaId,
+            'mercado_codigo': mercadoCodigoObrigatorio,
+            'usuario': usuarioNomeAtual,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    dynamic resposta;
+    try {
+      resposta = jsonDecode(response.body);
+    } catch (_) {
+      resposta = null;
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final erro = resposta is Map ? texto(resposta['erro']) : '';
+      throw Exception(
+        erro.isEmpty
+            ? 'A API recusou o arquivo. HTTP ${response.statusCode}.'
+            : erro,
+      );
+    }
+
+    if (resposta is! Map || resposta['sucesso'] != true) {
+      throw Exception('A API não confirmou a gravação do arquivo.');
+    }
+
+    return texto(resposta['arquivo_nome'], fallback: nomeArquivo);
   }
 
   Future<void> salvarColeta() async {
     if (itens.isEmpty) {
-      mostrarMensagem('Inclua ao menos um produto no balanco.', erro: true);
+      mostrarMensagem('Inclua ao menos um produto na lista.', erro: true);
       return;
     }
 
     if (!balancoAtivo) {
-      mostrarMensagem('Esta lista ja foi finalizada. Inicie um novo balanco.');
+      mostrarMensagem('Esta lista já foi finalizada. Inicie uma nova lista.');
       return;
     }
 
@@ -771,7 +868,7 @@ class _BalancoPageState extends State<BalancoPage> {
 
       final listaId = listaAtualId;
       if (listaId == null || listaId.isEmpty) {
-        throw Exception('Lista de balanco nao encontrada.');
+        throw Exception('Lista não encontrada.');
       }
 
       await atualizarStatusLista(listaId: listaId, status: 'ENVIADO');
@@ -785,20 +882,20 @@ class _BalancoPageState extends State<BalancoPage> {
       });
 
       await carregarListasAdmin();
-      mostrarMensagem('Coleta salva.');
+      mostrarMensagem('${rotuloTipoDocumento(tipoDocumentoAtual)} salva.');
       novoBalanco();
     } catch (e) {
       if (!mounted) return;
 
       setState(() => gerando = false);
       mostrarMensagem(
-        'Erro ao salvar coleta: ${CentralService.mensagemErroUsuario(e)}',
+        'Erro ao salvar lista: ${CentralService.mensagemErroUsuario(e)}',
         erro: true,
       );
     }
   }
 
-  Future<void> gerarTxtListaAdmin(_ListaBalancoResumo lista) async {
+  Future<void> enviarTxtListaAdmin(_ListaBalancoResumo lista) async {
     setState(() => gerando = true);
 
     try {
@@ -809,18 +906,38 @@ class _BalancoPageState extends State<BalancoPage> {
         return;
       }
 
-      final nomeArquivo = await compartilharTxt(itensLista);
+      var tipoDocumento = lista.tipoDocumento;
+      var nomeArquivoInformado = lista.nomeArquivoInformado;
+
+      if (nomeArquivoInformado.isEmpty) {
+        final configuracao = await solicitarConfiguracaoDocumento(
+          tipoInicial: tipoDocumento,
+          titulo: 'Configurar arquivo',
+        );
+        if (configuracao == null) return;
+
+        await atualizarConfiguracaoLista(lista.id, configuracao);
+        tipoDocumento = configuracao.tipoDocumento;
+        nomeArquivoInformado = configuracao.nomeArquivo;
+      }
+
+      final nomeArquivoSalvo = await enviarTxtServidor(
+        listaId: lista.id,
+        tipoDocumento: tipoDocumento,
+        nomeArquivo: nomeArquivoInformado,
+        itensTxt: itensLista,
+      );
       await atualizarStatusLista(
         listaId: lista.id,
         status: 'GERADO',
-        arquivoNome: nomeArquivo,
+        arquivoNome: nomeArquivoSalvo,
       );
 
       await carregarListasAdmin();
-      mostrarMensagem('TXT da lista gerado.');
+      mostrarMensagem('TXT salvo no servidor: $nomeArquivoSalvo');
     } catch (e) {
       mostrarMensagem(
-        'Erro ao gerar TXT da lista: ${CentralService.mensagemErroUsuario(e)}',
+        'Erro ao gerar TXT: ${CentralService.mensagemErroUsuario(e)}',
         erro: true,
       );
     } finally {
@@ -842,11 +959,13 @@ class _BalancoPageState extends State<BalancoPage> {
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: Text('Coleta ${codigoCurto(lista.id)}'),
+            title: Text(
+              '${rotuloTipoDocumento(lista.tipoDocumento)} ${codigoCurto(lista.id)}',
+            ),
             content: SizedBox(
               width: double.maxFinite,
               child: itensLista.isEmpty
-                  ? const Text('Esta coleta nao possui itens.')
+                  ? const Text('Esta lista não possui itens.')
                   : ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 420),
                       child: ListView.separated(
@@ -944,7 +1063,7 @@ class _BalancoPageState extends State<BalancoPage> {
           .eq('lista_id', lista.id);
       await supabase.from('balanco_listas').delete().eq('id', lista.id);
       await carregarListasAdmin();
-      mostrarMensagem('Coleta excluida.');
+      mostrarMensagem('Lista excluída.');
     } catch (e) {
       if (mounted) {
         setState(() => carregandoListas = false);
@@ -956,12 +1075,194 @@ class _BalancoPageState extends State<BalancoPage> {
     }
   }
 
+  Future<_ConfiguracaoDocumento?> solicitarConfiguracaoDocumento({
+    String tipoInicial = 'COLETA',
+    String nomeInicial = '',
+    String titulo = 'Nova coleta/balanço',
+  }) async {
+    final nomeController = TextEditingController(
+      text: nomeInicial.toLowerCase().endsWith('.txt')
+          ? nomeInicial.substring(0, nomeInicial.length - 4)
+          : nomeInicial,
+    );
+    var tipoSelecionado = normalizarTipoDocumento(tipoInicial);
+    String? erroNome;
+
+    final configuracao = await showDialog<_ConfiguracaoDocumento>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(titulo),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 430,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Tipo do arquivo',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(
+                              value: 'COLETA',
+                              icon: Icon(Icons.playlist_add_check_outlined),
+                              label: Text('Coleta'),
+                            ),
+                            ButtonSegment(
+                              value: 'BALANCO',
+                              icon: Icon(Icons.inventory_outlined),
+                              label: Text('Balanço'),
+                            ),
+                          ],
+                          selected: {tipoSelecionado},
+                          onSelectionChanged: (selecionados) {
+                            setDialogState(() {
+                              tipoSelecionado = selecionados.first;
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      TextField(
+                        controller: nomeController,
+                        autofocus: nomeInicial.isEmpty,
+                        maxLength: 176,
+                        textInputAction: TextInputAction.done,
+                        decoration: InputDecoration(
+                          labelText: 'Nome do arquivo',
+                          hintText: 'Ex: Contagem Setembro',
+                          helperText: 'A extensão .txt será adicionada.',
+                          errorText: erroNome,
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) {
+                          if (erroNome != null) {
+                            setDialogState(() => erroNome = null);
+                          }
+                        },
+                        onSubmitted: (_) {
+                          final erro = validarNomeArquivo(nomeController.text);
+                          if (erro != null) {
+                            setDialogState(() => erroNome = erro);
+                            return;
+                          }
+                          Navigator.pop(
+                            dialogContext,
+                            _ConfiguracaoDocumento(
+                              tipoDocumento: tipoSelecionado,
+                              nomeArquivo: normalizarNomeArquivo(
+                                nomeController.text,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final erro = validarNomeArquivo(nomeController.text);
+                    if (erro != null) {
+                      setDialogState(() => erroNome = erro);
+                      return;
+                    }
+                    Navigator.pop(
+                      dialogContext,
+                      _ConfiguracaoDocumento(
+                        tipoDocumento: tipoSelecionado,
+                        nomeArquivo: normalizarNomeArquivo(nomeController.text),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Confirmar'),
+                  style: FilledButton.styleFrom(backgroundColor: cor),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nomeController.dispose();
+    return configuracao;
+  }
+
+  Future<void> atualizarConfiguracaoLista(
+    String listaId,
+    _ConfiguracaoDocumento configuracao, {
+    bool atualizarAtual = false,
+  }) async {
+    await supabase
+        .from('balanco_listas')
+        .update({
+          'tipo_documento': configuracao.tipoDocumento,
+          'nome_arquivo_informado': configuracao.nomeArquivo,
+        })
+        .eq('id', listaId);
+
+    if (atualizarAtual && mounted) {
+      setState(() {
+        tipoDocumentoAtual = configuracao.tipoDocumento;
+        nomeArquivoAtual = configuracao.nomeArquivo;
+      });
+    }
+  }
+
+  Future<void> editarConfiguracaoAtual() async {
+    final listaId = listaAtualId;
+    if (listaId == null || listaId.isEmpty || salvandoLista) return;
+
+    final configuracao = await solicitarConfiguracaoDocumento(
+      tipoInicial: tipoDocumentoAtual,
+      nomeInicial: nomeArquivoAtual,
+      titulo: 'Editar arquivo',
+    );
+    if (configuracao == null) return;
+
+    setState(() => salvandoLista = true);
+    try {
+      await atualizarConfiguracaoLista(
+        listaId,
+        configuracao,
+        atualizarAtual: true,
+      );
+      mostrarMensagem('Dados do arquivo atualizados.');
+    } catch (e) {
+      mostrarMensagem(
+        'Erro ao atualizar arquivo: ${CentralService.mensagemErroUsuario(e)}',
+        erro: true,
+      );
+    } finally {
+      if (mounted) setState(() => salvandoLista = false);
+    }
+  }
+
   void novoBalanco() {
     setState(() {
       itens.clear();
       resultados = [];
       buscaController.clear();
       listaAtualId = null;
+      tipoDocumentoAtual = '';
+      nomeArquivoAtual = '';
       balancoAtivo = true;
     });
   }
@@ -1040,9 +1341,55 @@ class _BalancoPageState extends State<BalancoPage> {
 
     if (!mounted) return;
 
+    final listaExistente = listaAtualId;
+    if (listaExistente != null && listaExistente.isNotEmpty) {
+      if (nomeArquivoAtual.isEmpty) {
+        final configuracao = await solicitarConfiguracaoDocumento(
+          tipoInicial: tipoDocumentoAtual,
+          titulo: 'Configurar lista existente',
+        );
+        if (configuracao == null) return;
+        try {
+          await atualizarConfiguracaoLista(
+            listaExistente,
+            configuracao,
+            atualizarAtual: true,
+          );
+        } catch (e) {
+          mostrarMensagem(
+            'Erro ao configurar lista: ${CentralService.mensagemErroUsuario(e)}',
+            erro: true,
+          );
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => telaAtual = _TelaBalanco.novaColeta);
+      return;
+    }
+
+    final configuracao = await solicitarConfiguracaoDocumento();
+    if (configuracao == null || !mounted) return;
+
     setState(() {
-      telaAtual = _TelaBalanco.novaColeta;
+      tipoDocumentoAtual = configuracao.tipoDocumento;
+      nomeArquivoAtual = configuracao.nomeArquivo;
+      salvandoLista = true;
     });
+
+    try {
+      await garantirListaAberta();
+      if (!mounted) return;
+      setState(() => telaAtual = _TelaBalanco.novaColeta);
+    } catch (e) {
+      mostrarMensagem(
+        'Erro ao criar lista: ${CentralService.mensagemErroUsuario(e)}',
+        erro: true,
+      );
+    } finally {
+      if (mounted) setState(() => salvandoLista = false);
+    }
   }
 
   Future<void> abrirColetasFinalizadas() async {
@@ -1157,21 +1504,79 @@ class _BalancoPageState extends State<BalancoPage> {
     return Column(
       children: [
         cardMenuBalanco(
-          titulo: 'Nova Coleta',
-          subtitulo: 'Escaneie produtos e salve a coleta para geração do TXT.',
+          titulo: 'Nova coleta/balanço',
+          subtitulo: 'Escolha o tipo, informe o arquivo e conte os produtos.',
           icone: Icons.playlist_add_check_outlined,
           detalhe: itens.isEmpty ? null : '${itens.length} item(ns) em aberto',
           onTap: abrirNovaColeta,
         ),
         const SizedBox(height: 14),
         cardMenuBalanco(
-          titulo: 'Coletas Finalizadas',
-          subtitulo: 'Consulte coletas salvas e gere o TXT quando necessário.',
+          titulo: 'Listas finalizadas',
+          subtitulo: 'Consulte as listas salvas e gere o TXT no servidor.',
           icone: Icons.folder_copy_outlined,
-          detalhe: '${listasAdmin.length} coleta(s) carregada(s)',
+          detalhe: '${listasAdmin.length} lista(s) carregada(s)',
           onTap: abrirColetasFinalizadas,
         ),
       ],
+    );
+  }
+
+  Widget resumoDocumentoAtual() {
+    final tipo = rotuloTipoDocumento(tipoDocumentoAtual);
+    final nome = nomeArquivoAtual.isEmpty
+        ? 'Nome do arquivo não informado'
+        : nomeArquivoAtual;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cor.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: cor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.description_outlined, color: cor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tipo,
+                  style: TextStyle(color: cor, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  nome,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF1F2937),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Editar tipo e nome do arquivo',
+            onPressed: salvandoLista ? null : editarConfiguracaoAtual,
+            icon: const Icon(Icons.edit_outlined),
+            color: cor,
+          ),
+        ],
+      ),
     );
   }
 
@@ -1401,7 +1806,7 @@ class _BalancoPageState extends State<BalancoPage> {
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(
                 child: Text(
-                  'Nenhum produto incluido no balanco.',
+                  'Nenhum produto incluído na lista.',
                   style: TextStyle(
                     color: Colors.black54,
                     fontWeight: FontWeight.w700,
@@ -1476,6 +1881,7 @@ class _BalancoPageState extends State<BalancoPage> {
 
   Widget barraAcoes() {
     final carregandoAcao = gerando || salvandoLista;
+    final tipo = rotuloTipoDocumento(tipoDocumentoAtual);
 
     return Row(
       children: [
@@ -1494,7 +1900,7 @@ class _BalancoPageState extends State<BalancoPage> {
                     ),
                   )
                 : const Icon(Icons.save_outlined),
-            label: Text(carregandoAcao ? 'Salvando...' : 'Salvar Coleta'),
+            label: Text(carregandoAcao ? 'Salvando...' : 'Salvar $tipo'),
             style: ElevatedButton.styleFrom(
               backgroundColor: cor,
               foregroundColor: Colors.white,
@@ -1542,7 +1948,7 @@ class _BalancoPageState extends State<BalancoPage> {
         DropdownButtonFormField<String>(
           initialValue: filtroStatusColetas,
           decoration: InputDecoration(
-            labelText: 'Status da coleta',
+            labelText: 'Status da lista',
             prefixIcon: Icon(Icons.filter_list, color: cor),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
@@ -1586,7 +1992,7 @@ class _BalancoPageState extends State<BalancoPage> {
             children: [
               const Expanded(
                 child: Text(
-                  'Coletas finalizadas',
+                  'Listas finalizadas',
                   style: TextStyle(
                     color: Color(0xFF1F2937),
                     fontSize: 16,
@@ -1613,7 +2019,7 @@ class _BalancoPageState extends State<BalancoPage> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 14),
               child: Text(
-                'Nenhuma coleta salva encontrada.',
+                'Nenhuma lista salva encontrada.',
                 style: TextStyle(
                   color: Colors.black54,
                   fontWeight: FontWeight.w700,
@@ -1674,6 +2080,18 @@ class _BalancoPageState extends State<BalancoPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
+                      '${rotuloTipoDocumento(lista.tipoDocumento)} | '
+                      '${lista.nomeArquivoInformado.isEmpty ? 'Nome pendente' : lista.nomeArquivoInformado}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: cor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
                       '${lista.totalItens} itens | ${lista.criadoPor}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1694,7 +2112,7 @@ class _BalancoPageState extends State<BalancoPage> {
                     if (lista.geradoEm.isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
-                        'TXT gerado em ${dataResumo(lista.geradoEm)}',
+                        'TXT concluído em ${dataResumo(lista.geradoEm)}',
                         style: const TextStyle(
                           color: Colors.black45,
                           fontSize: 12,
@@ -1716,7 +2134,7 @@ class _BalancoPageState extends State<BalancoPage> {
                               icon: const Icon(Icons.visibility_outlined),
                               label: const FittedBox(
                                 fit: BoxFit.scaleDown,
-                                child: Text('Visualizar coleta'),
+                                child: Text('Visualizar lista'),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: const Color(0xFF1F2937),
@@ -1731,8 +2149,8 @@ class _BalancoPageState extends State<BalancoPage> {
                             child: OutlinedButton.icon(
                               onPressed: gerando
                                   ? null
-                                  : () => gerarTxtListaAdmin(lista),
-                              icon: const Icon(Icons.description_outlined),
+                                  : () => enviarTxtListaAdmin(lista),
+                              icon: const Icon(Icons.cloud_upload_outlined),
                               label: const Text('Gerar TXT'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: cor,
@@ -1741,7 +2159,7 @@ class _BalancoPageState extends State<BalancoPage> {
                             ),
                           ),
                           IconButton.filledTonal(
-                            tooltip: 'Excluir coleta',
+                            tooltip: 'Excluir lista',
                             onPressed: gerando || carregandoListas
                                 ? null
                                 : () => excluirListaAdmin(lista),
@@ -1766,6 +2184,8 @@ class _BalancoPageState extends State<BalancoPage> {
         return [menuBalanco()];
       case _TelaBalanco.novaColeta:
         return [
+          resumoDocumentoAtual(),
+          const SizedBox(height: 14),
           campoBusca(),
           resultadosBusca(),
           const SizedBox(height: 14),
@@ -1783,7 +2203,7 @@ class _BalancoPageState extends State<BalancoPage> {
     return Scaffold(
       backgroundColor: fundo,
       appBar: AppBar(
-        title: const Text('Balanço'),
+        title: const Text('Coletor/Balanço'),
         backgroundColor: cor,
         foregroundColor: Colors.white,
         centerTitle: true,
@@ -1823,6 +2243,8 @@ class _ItemBalanco {
 class _ListaBalancoResumo {
   final String id;
   final String status;
+  final String tipoDocumento;
+  final String nomeArquivoInformado;
   final int totalItens;
   final String criadoPor;
   final String criadoEm;
@@ -1833,11 +2255,23 @@ class _ListaBalancoResumo {
   const _ListaBalancoResumo({
     required this.id,
     required this.status,
+    required this.tipoDocumento,
+    required this.nomeArquivoInformado,
     required this.totalItens,
     required this.criadoPor,
     required this.criadoEm,
     required this.enviadoEm,
     required this.geradoEm,
     required this.arquivoNome,
+  });
+}
+
+class _ConfiguracaoDocumento {
+  final String tipoDocumento;
+  final String nomeArquivo;
+
+  const _ConfiguracaoDocumento({
+    required this.tipoDocumento,
+    required this.nomeArquivo,
   });
 }

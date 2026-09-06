@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import '../services/app_tema_service.dart';
 import '../services/lista_compras_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../services/monitor_status_pedidos_cliente_service.dart';
+import '../services/notificacao_status_pedido_service.dart';
 
 import 'home_page.dart';
 import 'categorias_page.dart';
@@ -16,11 +19,19 @@ import 'conta_page.dart';
 import 'produtos_categoria_page.dart';
 import 'finalizar_pedido_page.dart';
 import 'mais_page.dart';
+import 'jornal_ofertas_page.dart';
 
 class MainNavigationPage extends StatefulWidget {
   final int indexInicial;
+  final bool modoVisitante;
+  final VoidCallback? onSolicitarLogin;
 
-  const MainNavigationPage({super.key, this.indexInicial = 0});
+  const MainNavigationPage({
+    super.key,
+    this.indexInicial = 0,
+    this.modoVisitante = false,
+    this.onSolicitarLogin,
+  });
 
   @override
   State<MainNavigationPage> createState() => _MainNavigationPageState();
@@ -39,13 +50,25 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   bool exibindoConta = false;
   bool exibirBotaoFinalizarCompra = false;
   bool exibindoDetalhePedido = false;
+  StreamSubscription<String>? destinoNotificacaoSubscription;
 
   @override
   void initState() {
     super.initState();
     indexSelecionado = widget.indexInicial;
-    MonitorStatusPedidosClienteService.instance.iniciar();
+    if (!widget.modoVisitante) {
+      MonitorStatusPedidosClienteService.instance.iniciar();
+    }
     carregarConfiguracaoBotaoFinalizarCompra();
+    destinoNotificacaoSubscription = NotificacaoStatusPedidoService
+        .instance
+        .destinos
+        .listen(abrirDestinoNotificacao);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final destino = NotificacaoStatusPedidoService.instance
+          .consumirDestinoPendente();
+      if (destino != null) abrirDestinoNotificacao(destino);
+    });
   }
 
   Future<void> carregarConfiguracaoBotaoFinalizarCompra() async {
@@ -64,8 +87,54 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   @override
   void dispose() {
+    destinoNotificacaoSubscription?.cancel();
     MonitorStatusPedidosClienteService.instance.parar();
     super.dispose();
+  }
+
+  void abrirDestinoNotificacao(String destino) {
+    if (!mounted) return;
+    NotificacaoStatusPedidoService.instance.consumirDestinoPendente();
+
+    final normalizado = destino.trim().toLowerCase();
+    if (normalizado == 'jornal_promocoes') {
+      trocarAba(4);
+    } else if (normalizado == 'pedidos') {
+      trocarAba(3);
+    }
+  }
+
+  Future<void> solicitarLogin(String recurso) async {
+    if (!widget.modoVisitante || !mounted) return;
+
+    final entrar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(Icons.lock_outline, color: AppTemaService.primaria),
+        title: const Text('Entre para continuar'),
+        content: Text(
+          'Para $recurso, entre ou crie sua conta. Você pode continuar explorando produtos sem cadastro.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Agora não'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTemaService.primaria,
+            ),
+            icon: const Icon(Icons.login),
+            label: const Text('Entrar'),
+          ),
+        ],
+      ),
+    );
+
+    if (entrar == true && mounted) {
+      widget.onSolicitarLogin?.call();
+    }
   }
 
   void voltarParaInicio() {
@@ -102,6 +171,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirFinalizarPedido() {
+    if (widget.modoVisitante) {
+      unawaited(solicitarLogin('finalizar a compra'));
+      return;
+    }
     pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
       exibindoDetalhePedido = false;
@@ -135,6 +208,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirAbaPedidos() {
+    if (widget.modoVisitante) {
+      unawaited(solicitarLogin('acompanhar seus pedidos'));
+      return;
+    }
     pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
       exibindoDetalhePedido = false;
@@ -146,6 +223,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void abrirConta() {
+    if (widget.modoVisitante) {
+      unawaited(solicitarLogin('acessar seus dados pessoais'));
+      return;
+    }
     pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     setState(() {
       exibindoDetalhePedido = false;
@@ -157,6 +238,14 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void trocarAba(int index) {
+    if (widget.modoVisitante && (index == 3 || index == 5)) {
+      final recurso = index == 3
+          ? 'acompanhar seus pedidos'
+          : 'usar listas de compras';
+      unawaited(solicitarLogin(recurso));
+      return;
+    }
+
     if (index != 3) {
       pedidosPageKey.currentState?.fecharDetalhe(avisarPai: false);
     }
@@ -281,6 +370,8 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               key: carrinhoPageKey,
               onFinalizarPedido: abrirFinalizarPedido,
               onVoltarInicio: voltarParaInicio,
+              modoVisitante: widget.modoVisitante,
+              onSolicitarLogin: () => solicitarLogin('continuar a compra'),
             ),
       PedidosPage(
         key: pedidosPageKey,
@@ -295,11 +386,16 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           });
         },
       ),
+      JornalOfertasPage(onVoltarInicio: voltarParaInicio),
       ListasComprasPage(
         onAbrirCarrinho: () => trocarAba(2),
         onVoltarInicio: voltarParaInicio,
       ),
-      MaisPage(onVoltarInicio: voltarParaInicio),
+      MaisPage(
+        onVoltarInicio: voltarParaInicio,
+        modoVisitante: widget.modoVisitante,
+        onEntrar: () => solicitarLogin('acessar sua conta'),
+      ),
     ];
 
     return PopScope(
@@ -363,9 +459,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                         type: BottomNavigationBarType.fixed,
                         selectedItemColor: AppTemaService.primaria,
                         unselectedItemColor: const Color(0xFF5F6670),
-                        selectedFontSize: 11.5,
-                        unselectedFontSize: 11,
-                        iconSize: 27,
+                        selectedFontSize: 9,
+                        unselectedFontSize: 8.5,
+                        iconSize: 24,
                         elevation: 8,
                         items: [
                           const BottomNavigationBarItem(
@@ -393,6 +489,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                             icon: Icon(Icons.receipt_long_outlined),
                             activeIcon: Icon(Icons.receipt_long),
                             label: 'Pedidos',
+                          ),
+                          const BottomNavigationBarItem(
+                            icon: Icon(Icons.newspaper_outlined),
+                            activeIcon: Icon(Icons.newspaper),
+                            label: 'Jornal',
                           ),
                           const BottomNavigationBarItem(
                             icon: Icon(Icons.playlist_add_outlined),
