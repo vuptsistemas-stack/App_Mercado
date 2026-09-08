@@ -9,7 +9,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/central_service.dart';
 import '../../../services/sessao_loja.dart';
 import '../scanner.dart';
-import 'estoque_auditoria_page.dart';
 
 bool lerBooleanoDinamico(dynamic valor, {required bool padrao}) {
   if (valor == true) {
@@ -471,22 +470,6 @@ class _EstoquePageState extends State<EstoquePage> {
                       ),
                     ),
                   ),
-                if (usuarioPodePermissaoEstoque(
-                  'estoque_auditoria',
-                  masterCentralConfirmado: usuarioMasterCentral,
-                ))
-                  cardOpcao(
-                    titulo: 'Auditoria',
-                    subtitulo: 'Consultar alteracoes de estoque',
-                    icone: Icons.fact_check_outlined,
-                    cor: Colors.indigo,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const EstoqueAuditoriaPage(),
-                      ),
-                    ),
-                  ),
                 if (!usuarioPodeAlgumaPermissaoEstoque([
                   'estoque',
                   'estoque_entrada',
@@ -495,7 +478,6 @@ class _EstoquePageState extends State<EstoquePage> {
                   'estoque_baixa_avaria',
                   'estoque_baixa_validade',
                   'estoque_abrir_pacote',
-                  'estoque_auditoria',
                 ], masterCentralConfirmado: usuarioMasterCentral))
                   avisoSemPermissaoEstoque(),
               ],
@@ -802,9 +784,9 @@ class _AbrirPacotePageState extends State<AbrirPacotePage> {
         );
       }
 
-      final locais = extrairLocaisEstoque(data)
-          .where(localConsideradoNoApp)
-          .toList();
+      final locais = extrairLocaisEstoque(
+        data,
+      ).where(localConsideradoNoApp).toList();
       final localPadrao = locais.length == 1 ? locais.first : null;
 
       if (!mounted) return;
@@ -1367,7 +1349,9 @@ class _AbrirPacotePageState extends State<AbrirPacotePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            auditoriaOk ? 'Pacote aberto e estoque atualizado.' : 'Estoque atualizado, mas a auditoria nao foi gravada completamente.',
+            auditoriaOk
+                ? 'Pacote aberto e estoque atualizado.'
+                : 'Estoque atualizado, mas a auditoria nao foi gravada completamente.',
           ),
           backgroundColor: auditoriaOk ? Colors.green : Colors.orange,
         ),
@@ -4086,9 +4070,9 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
         );
       }
 
-      final locais = extrairLocaisEstoque(data)
-          .where(localConsideradoNoApp)
-          .toList();
+      final locais = extrairLocaisEstoque(
+        data,
+      ).where(localConsideradoNoApp).toList();
       final localPadrao = widget.tipo != 'TRANSFERENCIA' && locais.length == 1
           ? locais.first
           : null;
@@ -5275,7 +5259,9 @@ class _ConsultaEstoquePageState extends State<ConsultaEstoquePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            auditoriaOk ? 'Transferência realizada com sucesso.' : 'Transferência realizada, mas a auditoria não foi gravada completamente.',
+            auditoriaOk
+                ? 'Transferência realizada com sucesso.'
+                : 'Transferência realizada, mas a auditoria não foi gravada completamente.',
           ),
           backgroundColor: auditoriaOk ? Colors.green : Colors.orange,
         ),
