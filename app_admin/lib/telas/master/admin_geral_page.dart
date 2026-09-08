@@ -12,6 +12,7 @@ import '../shared/usuarios_sistema_page.dart';
 
 import 'cadastrar_mercado_page.dart';
 import 'cadastrar_usuario_page.dart';
+import 'financeiro_comercial_page.dart';
 import 'gerenciar_mercados_page.dart';
 
 // MASTER-ACESSAR-LOJA-FORCA-ABA-LOJA
@@ -231,6 +232,13 @@ class _AdminGeralPageState extends State<AdminGeralPage> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const SelecionarLojaPage()),
+    );
+  }
+
+  void abrirFinanceiroComercial() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FinanceiroComercialPage()),
     );
   }
 
@@ -540,6 +548,16 @@ class _AdminGeralPageState extends State<AdminGeralPage> {
                     icone: Icons.edit_location_alt,
                     cor: Colors.deepOrange,
                     onTap: abrirGerenciarMercados,
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  cardResumo(
+                    titulo: 'Financeiro e comercial',
+                    subtitulo: 'Contratos, faturamento, módulos e cobranças',
+                    icone: Icons.account_balance_wallet_outlined,
+                    cor: Colors.teal,
+                    onTap: abrirFinanceiroComercial,
                   ),
 
                   const SizedBox(height: 12),

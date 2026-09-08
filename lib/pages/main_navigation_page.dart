@@ -98,10 +98,20 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
     final normalizado = destino.trim().toLowerCase();
     if (normalizado == 'jornal_promocoes') {
-      trocarAba(4);
+      abrirJornal();
     } else if (normalizado == 'pedidos') {
       trocarAba(3);
     }
+  }
+
+  void abrirJornal() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => JornalOfertasPage(
+          onVoltarInicio: () => Navigator.of(routeContext).pop(),
+        ),
+      ),
+    );
   }
 
   Future<void> solicitarLogin(String recurso) async {
@@ -238,7 +248,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   }
 
   void trocarAba(int index) {
-    if (widget.modoVisitante && (index == 3 || index == 5)) {
+    if (widget.modoVisitante && (index == 3 || index == 4)) {
       final recurso = index == 3
           ? 'acompanhar seus pedidos'
           : 'usar listas de compras';
@@ -386,7 +396,6 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           });
         },
       ),
-      JornalOfertasPage(onVoltarInicio: voltarParaInicio),
       ListasComprasPage(
         onAbrirCarrinho: () => trocarAba(2),
         onVoltarInicio: voltarParaInicio,
@@ -489,11 +498,6 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                             icon: Icon(Icons.receipt_long_outlined),
                             activeIcon: Icon(Icons.receipt_long),
                             label: 'Pedidos',
-                          ),
-                          const BottomNavigationBarItem(
-                            icon: Icon(Icons.newspaper_outlined),
-                            activeIcon: Icon(Icons.newspaper),
-                            label: 'Jornal',
                           ),
                           const BottomNavigationBarItem(
                             icon: Icon(Icons.playlist_add_outlined),

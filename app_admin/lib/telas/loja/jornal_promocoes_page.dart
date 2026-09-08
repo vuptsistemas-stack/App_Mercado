@@ -93,7 +93,7 @@ class JornalPromocoesPage extends StatefulWidget {
 
 class _JornalPromocoesPageState extends State<JornalPromocoesPage> {
   static const int quantidadeMaxima = 12;
-  static const int versaoPublicacao = 2;
+  static const int versaoPublicacao = 3;
   static const String assetEncartePadrao =
       'assets/images/jornal_super_ofertas.jpeg';
 

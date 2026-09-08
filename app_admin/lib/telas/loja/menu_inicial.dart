@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/central_service.dart';
+import '../../services/financeiro_master_service.dart';
 import '../../services/monitor_acoes_validade_service.dart';
 import '../../services/monitor_pedidos_service.dart';
 import '../../services/push_notification_service.dart';
@@ -45,6 +46,7 @@ class _MenuInicialPageState extends State<MenuInicialPage>
   static Color get fundo => SessaoLoja.corFundo;
 
   final CentralService centralService = CentralService();
+  final FinanceiroMasterService financeiroService = FinanceiroMasterService();
 
   bool carregandoPermissoes = true;
   bool usuarioMasterCentral = false;
@@ -59,6 +61,7 @@ class _MenuInicialPageState extends State<MenuInicialPage>
   bool atualizandoPermissoesRemotas = false;
   bool ativandoNotificacoesWeb = false;
   bool notificacoesWebAtivas = false;
+  String? avisoRestricaoFinanceira;
 
   Timer? monitorPermissoesTimer;
   DateTime? ultimaAtualizacaoPermissoesRemotas;
@@ -172,7 +175,9 @@ class _MenuInicialPageState extends State<MenuInicialPage>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ativou ? 'Notificacoes ativadas neste dispositivo.' : 'Nao foi possivel ativar. No iPhone, abra o PWA instalado na Tela de Inicio e permita as notificacoes.',
+          ativou
+              ? 'Notificacoes ativadas neste dispositivo.'
+              : 'Nao foi possivel ativar. No iPhone, abra o PWA instalado na Tela de Inicio e permita as notificacoes.',
         ),
         backgroundColor: ativou ? Colors.green : Colors.orange,
       ),
@@ -497,7 +502,45 @@ class _MenuInicialPageState extends State<MenuInicialPage>
       userId: userId,
     );
 
-    return extrairPermissoesPermitidas(resposta).toSet();
+    final permissoesEncontradas = extrairPermissoesPermitidas(resposta).toSet();
+    return aplicarRestricaoFinanceira(permissoesEncontradas);
+  }
+
+  Future<Set<String>> aplicarRestricaoFinanceira(
+    Set<String> permissoesEncontradas,
+  ) async {
+    final mercadoId = SessaoLoja.mercadoId?.trim() ?? '';
+    if (mercadoId.isEmpty || usuarioMasterCentral) {
+      return permissoesEncontradas;
+    }
+
+    try {
+      final acesso = await financeiroService.consultarAcessoLoja(mercadoId);
+      final permitirPedidos = acesso['permitir_pedidos'] != false;
+      final permitirDemais = acesso['permitir_demais_modulos'] != false;
+      final mensagem = acesso['mensagem']?.toString().trim();
+
+      if (mounted) {
+        setState(() {
+          avisoRestricaoFinanceira =
+              !permitirDemais && mensagem != null && mensagem.isNotEmpty
+              ? mensagem
+              : null;
+        });
+      }
+
+      if (!permitirPedidos) return <String>{};
+      if (!permitirDemais) {
+        return permissoesEncontradas.contains('pedidos')
+            ? <String>{'pedidos'}
+            : <String>{};
+      }
+    } catch (_) {
+      // Compatibilidade durante a implantação do SQL financeiro.
+      // Uma falha temporária nunca bloqueia silenciosamente a operação da loja.
+    }
+
+    return permissoesEncontradas;
   }
 
   Future<void> aplicarPermissoesAtualizadas(Set<String> novasPermissoes) async {
@@ -833,6 +876,30 @@ class _MenuInicialPageState extends State<MenuInicialPage>
                     ),
                     const SizedBox(height: 14),
                     statusApiTopo(),
+                    if (avisoRestricaoFinanceira != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.10),
+                          border: Border.all(
+                            color: Colors.orange.withValues(alpha: 0.45),
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.warning_amber,
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(avisoRestricaoFinanceira!)),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (kIsWeb && temPermissao('pedidos')) ...[
                       const SizedBox(height: 14),
                       statusNotificacoesWeb(),

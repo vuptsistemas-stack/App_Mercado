@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/app_tema_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import 'conta_page.dart';
+import 'jornal_ofertas_page.dart';
 import 'login_page.dart';
 
 class MaisPage extends StatelessWidget {
@@ -387,6 +388,17 @@ class MaisPage extends StatelessWidget {
     );
   }
 
+  void abrirJornal(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (routeContext) => JornalOfertasPage(
+          onVoltarInicio: () => Navigator.of(routeContext).pop(),
+        ),
+      ),
+    );
+  }
+
   void abrirDetalhe(
     BuildContext context, {
     required String titulo,
@@ -596,6 +608,12 @@ class MaisPage extends StatelessWidget {
         mainAxisExtent: 90,
       ),
       children: [
+        itemMenu(
+          icone: Icons.newspaper_outlined,
+          titulo: 'Jornal de ofertas',
+          descricao: 'Ofertas da semana',
+          onTap: () => abrirJornal(context),
+        ),
         if (modoVisitante)
           itemMenu(
             icone: Icons.login,

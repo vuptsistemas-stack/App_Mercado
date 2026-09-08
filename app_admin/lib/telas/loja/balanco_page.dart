@@ -30,6 +30,7 @@ class _BalancoPageState extends State<BalancoPage> {
   String? listaAtualId;
   String tipoDocumentoAtual = '';
   String nomeArquivoAtual = '';
+  String clienteNomeAtual = '';
   DateTime? filtroDataColetas;
   String filtroStatusColetas = 'TODOS';
   _TelaBalanco telaAtual = _TelaBalanco.menu;
@@ -155,7 +156,9 @@ class _BalancoPageState extends State<BalancoPage> {
     try {
       final lista = await supabase
           .from('balanco_listas')
-          .select('id, status, tipo_documento, nome_arquivo_informado')
+          .select(
+            'id, status, tipo_documento, nome_arquivo_informado, cliente_nome',
+          )
           .eq('mercado_id', mercadoIdObrigatorio)
           .eq('criado_por_user_id', userId)
           .eq('status', 'ABERTO')
@@ -169,6 +172,7 @@ class _BalancoPageState extends State<BalancoPage> {
           listaAtualId = null;
           tipoDocumentoAtual = '';
           nomeArquivoAtual = '';
+          clienteNomeAtual = '';
           itens.clear();
         });
         return;
@@ -193,6 +197,7 @@ class _BalancoPageState extends State<BalancoPage> {
           texto(lista['tipo_documento'], fallback: 'BALANCO'),
         );
         nomeArquivoAtual = texto(lista['nome_arquivo_informado']);
+        clienteNomeAtual = texto(lista['cliente_nome']);
         balancoAtivo = true;
         itens
           ..clear()
@@ -221,7 +226,7 @@ class _BalancoPageState extends State<BalancoPage> {
       var consulta = supabase
           .from('balanco_listas')
           .select(
-            'id, status, tipo_documento, nome_arquivo_informado, total_itens, criado_por_nome, criado_por_login, criado_em, enviado_em, gerado_em, arquivo_nome',
+            'id, status, tipo_documento, nome_arquivo_informado, cliente_nome, total_itens, criado_por_nome, criado_por_login, criado_em, enviado_em, gerado_em, arquivo_nome',
           )
           .eq('mercado_id', mercadoIdObrigatorio)
           .inFilter('status', ['ENVIADO', 'GERADO']);
@@ -266,6 +271,7 @@ class _BalancoPageState extends State<BalancoPage> {
                   texto(item['tipo_documento'], fallback: 'BALANCO'),
                 ),
                 nomeArquivoInformado: texto(item['nome_arquivo_informado']),
+                clienteNome: texto(item['cliente_nome']),
                 totalItens: int.tryParse(texto(item['total_itens'])) ?? 0,
                 criadoPor: texto(
                   item['criado_por_nome'] ?? item['criado_por_login'],
@@ -302,8 +308,20 @@ class _BalancoPageState extends State<BalancoPage> {
       throw Exception('Usuario da loja nao identificado.');
     }
 
-    if (!tipoDocumentoValido(tipoDocumentoAtual) || nomeArquivoAtual.isEmpty) {
-      throw Exception('Informe o tipo e o nome do arquivo antes de continuar.');
+    if (!tipoDocumentoValido(tipoDocumentoAtual)) {
+      throw Exception('Informe o tipo do arquivo antes de continuar.');
+    }
+
+    if (
+        tipoDocumentoAtual == 'TRANSF_INTERCOMPANY' &&
+        clienteNomeAtual.isEmpty) {
+      throw Exception('Selecione o cliente da transferência intercompany.');
+    }
+
+    if (
+        tipoDocumentoAtual != 'TRANSF_INTERCOMPANY' &&
+        nomeArquivoAtual.isEmpty) {
+      throw Exception('Informe o nome do arquivo antes de continuar.');
     }
 
     final dados = {
@@ -316,6 +334,7 @@ class _BalancoPageState extends State<BalancoPage> {
       'status': 'ABERTO',
       'tipo_documento': tipoDocumentoAtual,
       'nome_arquivo_informado': nomeArquivoAtual,
+      'cliente_nome': clienteNomeAtual.isEmpty ? null : clienteNomeAtual,
       'total_itens': 0,
     };
 
@@ -495,15 +514,71 @@ class _BalancoPageState extends State<BalancoPage> {
   }
 
   bool tipoDocumentoValido(String valor) {
-    return valor == 'COLETA' || valor == 'BALANCO';
+    return const {
+      'COLETA',
+      'BALANCO',
+      'AVARIA',
+      'VALIDADE',
+      'TRANSF_INTERCOMPANY',
+      'TRANSF_INTERNA_SETOR',
+    }.contains(valor.trim().toUpperCase());
   }
 
   String normalizarTipoDocumento(String valor) {
-    return valor.trim().toUpperCase() == 'COLETA' ? 'COLETA' : 'BALANCO';
+    final tipo = valor.trim().toUpperCase();
+    return tipoDocumentoValido(tipo) ? tipo : 'BALANCO';
   }
 
   String rotuloTipoDocumento(String valor) {
-    return normalizarTipoDocumento(valor) == 'COLETA' ? 'Coleta' : 'Balanço';
+    switch (normalizarTipoDocumento(valor)) {
+      case 'COLETA':
+        return 'Coleta';
+      case 'AVARIA':
+        return 'Avaria';
+      case 'VALIDADE':
+        return 'Validade';
+      case 'TRANSF_INTERCOMPANY':
+        return 'Transf. intercompany';
+      case 'TRANSF_INTERNA_SETOR':
+        return 'Transf. interna/setor';
+      default:
+        return 'Balanço';
+    }
+  }
+
+  IconData iconeTipoDocumento(String valor) {
+    switch (normalizarTipoDocumento(valor)) {
+      case 'COLETA':
+        return Icons.playlist_add_check_outlined;
+      case 'AVARIA':
+        return Icons.broken_image_outlined;
+      case 'VALIDADE':
+        return Icons.event_busy_outlined;
+      case 'TRANSF_INTERCOMPANY':
+        return Icons.swap_horiz_outlined;
+      case 'TRANSF_INTERNA_SETOR':
+        return Icons.compare_arrows_outlined;
+      default:
+        return Icons.inventory_outlined;
+    }
+  }
+
+  bool nomeArquivoAutomatico(String tipoDocumento) {
+    return normalizarTipoDocumento(tipoDocumento) == 'TRANSF_INTERCOMPANY';
+  }
+
+  String descricaoNomeArquivo({
+    required String tipoDocumento,
+    required String nomeArquivo,
+    required String clienteNome,
+    String arquivoGerado = '',
+  }) {
+    if (arquivoGerado.isNotEmpty) return arquivoGerado;
+    if (!nomeArquivoAutomatico(tipoDocumento)) {
+      return nomeArquivo.isEmpty ? 'Nome do arquivo não informado' : nomeArquivo;
+    }
+    if (clienteNome.isEmpty) return 'Cliente não selecionado';
+    return 'Automático: data_$clienteNome.txt';
   }
 
   String normalizarNomeArquivo(String valor) {
@@ -798,10 +873,58 @@ class _BalancoPageState extends State<BalancoPage> {
         .join('\n');
   }
 
+  Future<List<String>> buscarClientesTransferencia() async {
+    final api = apiBaseUrl;
+    if (api == null) {
+      throw Exception('Nenhuma API configurada para esta loja.');
+    }
+
+    await carregarTokenApiSeNecessario();
+
+    final response = await http
+        .get(
+          Uri.parse('$api/coletor-balanco/clientes-intercompany'),
+          headers: headersApi(),
+        )
+        .timeout(const Duration(seconds: 20));
+
+    dynamic resposta;
+    try {
+      resposta = jsonDecode(response.body);
+    } catch (_) {
+      resposta = null;
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final erro = resposta is Map ? texto(resposta['erro']) : '';
+      throw Exception(
+        erro.isEmpty
+            ? 'A API recusou a consulta. HTTP ${response.statusCode}.'
+            : erro,
+      );
+    }
+
+    final dados = resposta is Map ? resposta['clientes'] : null;
+    if (dados is! List) {
+      throw Exception('A API retornou uma lista de clientes inválida.');
+    }
+
+    return dados
+        .map((item) {
+          if (item is Map) return texto(item['nome_pessoa']);
+          return texto(item);
+        })
+        .where((nome) => nome.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
   Future<String> enviarTxtServidor({
     required String listaId,
     required String tipoDocumento,
     required String nomeArquivo,
+    required String clienteNome,
     required List<_ItemBalanco> itensTxt,
   }) async {
     final api = apiBaseUrl;
@@ -818,6 +941,7 @@ class _BalancoPageState extends State<BalancoPage> {
           body: jsonEncode({
             'nome_arquivo': nomeArquivo,
             'tipo_documento': tipoDocumento,
+            'cliente_nome': clienteNome,
             'conteudo': conteudoTxt(itensTxt),
             'lista_id': listaId,
             'mercado_codigo': mercadoCodigoObrigatorio,
@@ -908,10 +1032,15 @@ class _BalancoPageState extends State<BalancoPage> {
 
       var tipoDocumento = lista.tipoDocumento;
       var nomeArquivoInformado = lista.nomeArquivoInformado;
+      var clienteNome = lista.clienteNome;
 
-      if (nomeArquivoInformado.isEmpty) {
+      if (
+          (nomeArquivoAutomatico(tipoDocumento) && clienteNome.isEmpty) ||
+          (!nomeArquivoAutomatico(tipoDocumento) &&
+              nomeArquivoInformado.isEmpty)) {
         final configuracao = await solicitarConfiguracaoDocumento(
           tipoInicial: tipoDocumento,
+          clienteInicial: clienteNome,
           titulo: 'Configurar arquivo',
         );
         if (configuracao == null) return;
@@ -919,12 +1048,14 @@ class _BalancoPageState extends State<BalancoPage> {
         await atualizarConfiguracaoLista(lista.id, configuracao);
         tipoDocumento = configuracao.tipoDocumento;
         nomeArquivoInformado = configuracao.nomeArquivo;
+        clienteNome = configuracao.clienteNome;
       }
 
       final nomeArquivoSalvo = await enviarTxtServidor(
         listaId: lista.id,
         tipoDocumento: tipoDocumento,
         nomeArquivo: nomeArquivoInformado,
+        clienteNome: clienteNome,
         itensTxt: itensLista,
       );
       await atualizarStatusLista(
@@ -964,9 +1095,21 @@ class _BalancoPageState extends State<BalancoPage> {
             ),
             content: SizedBox(
               width: double.maxFinite,
-              child: itensLista.isEmpty
-                  ? const Text('Esta lista não possui itens.')
-                  : ConstrainedBox(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (lista.clienteNome.isNotEmpty) ...[
+                    Text(
+                      'Cliente: ${lista.clienteNome}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (itensLista.isEmpty)
+                    const Text('Esta lista não possui itens.')
+                  else
+                    ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 420),
                       child: ListView.separated(
                         shrinkWrap: true,
@@ -999,6 +1142,8 @@ class _BalancoPageState extends State<BalancoPage> {
                         },
                       ),
                     ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -1078,7 +1223,8 @@ class _BalancoPageState extends State<BalancoPage> {
   Future<_ConfiguracaoDocumento?> solicitarConfiguracaoDocumento({
     String tipoInicial = 'COLETA',
     String nomeInicial = '',
-    String titulo = 'Nova coleta/balanço',
+    String clienteInicial = '',
+    String titulo = 'Nova coleta',
   }) async {
     final nomeController = TextEditingController(
       text: nomeInicial.toLowerCase().endsWith('.txt')
@@ -1086,7 +1232,13 @@ class _BalancoPageState extends State<BalancoPage> {
           : nomeInicial,
     );
     var tipoSelecionado = normalizarTipoDocumento(tipoInicial);
+    var clienteSelecionado = clienteInicial.trim();
     String? erroNome;
+    String? erroCliente;
+    Future<List<String>>? clientesFuture =
+        nomeArquivoAutomatico(tipoSelecionado)
+        ? buscarClientesTransferencia()
+        : null;
 
     final configuracao = await showDialog<_ConfiguracaoDocumento>(
       context: context,
@@ -1094,11 +1246,41 @@ class _BalancoPageState extends State<BalancoPage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void confirmar() {
+              if (nomeArquivoAutomatico(tipoSelecionado)) {
+                if (clienteSelecionado.isEmpty) {
+                  setDialogState(
+                    () => erroCliente = 'Selecione o cliente da transferência.',
+                  );
+                  return;
+                }
+              } else {
+                final erro = validarNomeArquivo(nomeController.text);
+                if (erro != null) {
+                  setDialogState(() => erroNome = erro);
+                  return;
+                }
+              }
+
+              Navigator.pop(
+                dialogContext,
+                _ConfiguracaoDocumento(
+                  tipoDocumento: tipoSelecionado,
+                  nomeArquivo: nomeArquivoAutomatico(tipoSelecionado)
+                      ? ''
+                      : normalizarNomeArquivo(nomeController.text),
+                  clienteNome: nomeArquivoAutomatico(tipoSelecionado)
+                      ? clienteSelecionado
+                      : '',
+                ),
+              );
+            }
+
             return AlertDialog(
               title: Text(titulo),
               content: SingleChildScrollView(
                 child: SizedBox(
-                  width: 430,
+                  width: 480,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1108,64 +1290,175 @@ class _BalancoPageState extends State<BalancoPage> {
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(
-                              value: 'COLETA',
-                              icon: Icon(Icons.playlist_add_check_outlined),
-                              label: Text('Coleta'),
-                            ),
-                            ButtonSegment(
-                              value: 'BALANCO',
-                              icon: Icon(Icons.inventory_outlined),
-                              label: Text('Balanço'),
-                            ),
-                          ],
-                          selected: {tipoSelecionado},
-                          onSelectionChanged: (selecionados) {
-                            setDialogState(() {
-                              tipoSelecionado = selecionados.first;
-                            });
-                          },
+                      DropdownButtonFormField<String>(
+                        initialValue: tipoSelecionado,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.description_outlined),
                         ),
+                        items: const [
+                          DropdownMenuItem(value: 'COLETA', child: Text('Coleta')),
+                          DropdownMenuItem(
+                            value: 'BALANCO',
+                            child: Text('Balanço'),
+                          ),
+                          DropdownMenuItem(value: 'AVARIA', child: Text('Avaria')),
+                          DropdownMenuItem(
+                            value: 'VALIDADE',
+                            child: Text('Validade'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'TRANSF_INTERCOMPANY',
+                            child: Text('Transf. intercompany'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'TRANSF_INTERNA_SETOR',
+                            child: Text('Transf. interna/setor'),
+                          ),
+                        ],
+                        onChanged: (tipo) {
+                          if (tipo == null) return;
+                          setDialogState(() {
+                            tipoSelecionado = tipo;
+                            erroNome = null;
+                            erroCliente = null;
+                            if (nomeArquivoAutomatico(tipo)) {
+                              clientesFuture ??= buscarClientesTransferencia();
+                            } else {
+                              clienteSelecionado = '';
+                            }
+                          });
+                        },
                       ),
                       const SizedBox(height: 18),
-                      TextField(
-                        controller: nomeController,
-                        autofocus: nomeInicial.isEmpty,
-                        maxLength: 176,
-                        textInputAction: TextInputAction.done,
-                        decoration: InputDecoration(
-                          labelText: 'Nome do arquivo',
-                          hintText: 'Ex: Contagem Setembro',
-                          helperText: 'A extensão .txt será adicionada.',
-                          errorText: erroNome,
-                          border: const OutlineInputBorder(),
+                      if (nomeArquivoAutomatico(tipoSelecionado))
+                        FutureBuilder<List<String>>(
+                          future: clientesFuture,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                                title: Text('Carregando clientes...'),
+                              );
+                            }
+
+                            if (snapshot.hasError) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Não foi possível carregar os clientes: '
+                                    '${CentralService.mensagemErroUsuario(snapshot.error!)}',
+                                    style: const TextStyle(color: Colors.red),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        clientesFuture =
+                                            buscarClientesTransferencia();
+                                      });
+                                    },
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Tentar novamente'),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            final clientes = <String>{
+                              ...?snapshot.data,
+                              if (clienteSelecionado.isNotEmpty)
+                                clienteSelecionado,
+                            }.toList()
+                              ..sort(
+                                (a, b) => a.toLowerCase().compareTo(
+                                  b.toLowerCase(),
+                                ),
+                              );
+
+                            if (clientes.isEmpty) {
+                              return const Text(
+                                'Nenhum cliente elegível foi encontrado.',
+                                style: TextStyle(color: Colors.red),
+                              );
+                            }
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                DropdownButtonFormField<String>(
+                                  initialValue: clienteSelecionado.isEmpty
+                                      ? null
+                                      : clienteSelecionado,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Cliente de destino',
+                                    helperText:
+                                        'O nome do TXT será criado na geração.',
+                                    errorText: erroCliente,
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: const Icon(
+                                      Icons.business_outlined,
+                                    ),
+                                  ),
+                                  items: clientes
+                                      .map(
+                                        (cliente) => DropdownMenuItem(
+                                          value: cliente,
+                                          child: Text(
+                                            cliente,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (cliente) {
+                                    setDialogState(() {
+                                      clienteSelecionado = cliente ?? '';
+                                      erroCliente = null;
+                                    });
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Formato: AAAA-MM-DD_nome-do-cliente.txt',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        )
+                      else
+                        TextField(
+                          controller: nomeController,
+                          autofocus: nomeInicial.isEmpty,
+                          maxLength: 176,
+                          textInputAction: TextInputAction.done,
+                          decoration: InputDecoration(
+                            labelText: 'Nome do arquivo',
+                            hintText: 'Ex: Contagem Setembro',
+                            helperText: 'A extensão .txt será adicionada.',
+                            errorText: erroNome,
+                            border: const OutlineInputBorder(),
+                          ),
+                          onChanged: (_) {
+                            if (erroNome != null) {
+                              setDialogState(() => erroNome = null);
+                            }
+                          },
+                          onSubmitted: (_) => confirmar(),
                         ),
-                        onChanged: (_) {
-                          if (erroNome != null) {
-                            setDialogState(() => erroNome = null);
-                          }
-                        },
-                        onSubmitted: (_) {
-                          final erro = validarNomeArquivo(nomeController.text);
-                          if (erro != null) {
-                            setDialogState(() => erroNome = erro);
-                            return;
-                          }
-                          Navigator.pop(
-                            dialogContext,
-                            _ConfiguracaoDocumento(
-                              tipoDocumento: tipoSelecionado,
-                              nomeArquivo: normalizarNomeArquivo(
-                                nomeController.text,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                     ],
                   ),
                 ),
@@ -1176,20 +1469,7 @@ class _BalancoPageState extends State<BalancoPage> {
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(
-                  onPressed: () {
-                    final erro = validarNomeArquivo(nomeController.text);
-                    if (erro != null) {
-                      setDialogState(() => erroNome = erro);
-                      return;
-                    }
-                    Navigator.pop(
-                      dialogContext,
-                      _ConfiguracaoDocumento(
-                        tipoDocumento: tipoSelecionado,
-                        nomeArquivo: normalizarNomeArquivo(nomeController.text),
-                      ),
-                    );
-                  },
+                  onPressed: confirmar,
                   icon: const Icon(Icons.check),
                   label: const Text('Confirmar'),
                   style: FilledButton.styleFrom(backgroundColor: cor),
@@ -1215,6 +1495,9 @@ class _BalancoPageState extends State<BalancoPage> {
         .update({
           'tipo_documento': configuracao.tipoDocumento,
           'nome_arquivo_informado': configuracao.nomeArquivo,
+          'cliente_nome': configuracao.clienteNome.isEmpty
+              ? null
+              : configuracao.clienteNome,
         })
         .eq('id', listaId);
 
@@ -1222,6 +1505,7 @@ class _BalancoPageState extends State<BalancoPage> {
       setState(() {
         tipoDocumentoAtual = configuracao.tipoDocumento;
         nomeArquivoAtual = configuracao.nomeArquivo;
+        clienteNomeAtual = configuracao.clienteNome;
       });
     }
   }
@@ -1233,6 +1517,7 @@ class _BalancoPageState extends State<BalancoPage> {
     final configuracao = await solicitarConfiguracaoDocumento(
       tipoInicial: tipoDocumentoAtual,
       nomeInicial: nomeArquivoAtual,
+      clienteInicial: clienteNomeAtual,
       titulo: 'Editar arquivo',
     );
     if (configuracao == null) return;
@@ -1263,6 +1548,7 @@ class _BalancoPageState extends State<BalancoPage> {
       listaAtualId = null;
       tipoDocumentoAtual = '';
       nomeArquivoAtual = '';
+      clienteNomeAtual = '';
       balancoAtivo = true;
     });
   }
@@ -1343,9 +1629,14 @@ class _BalancoPageState extends State<BalancoPage> {
 
     final listaExistente = listaAtualId;
     if (listaExistente != null && listaExistente.isNotEmpty) {
-      if (nomeArquivoAtual.isEmpty) {
+      if (
+          (nomeArquivoAutomatico(tipoDocumentoAtual) &&
+              clienteNomeAtual.isEmpty) ||
+          (!nomeArquivoAutomatico(tipoDocumentoAtual) &&
+              nomeArquivoAtual.isEmpty)) {
         final configuracao = await solicitarConfiguracaoDocumento(
           tipoInicial: tipoDocumentoAtual,
+          clienteInicial: clienteNomeAtual,
           titulo: 'Configurar lista existente',
         );
         if (configuracao == null) return;
@@ -1375,6 +1666,7 @@ class _BalancoPageState extends State<BalancoPage> {
     setState(() {
       tipoDocumentoAtual = configuracao.tipoDocumento;
       nomeArquivoAtual = configuracao.nomeArquivo;
+      clienteNomeAtual = configuracao.clienteNome;
       salvandoLista = true;
     });
 
@@ -1504,8 +1796,8 @@ class _BalancoPageState extends State<BalancoPage> {
     return Column(
       children: [
         cardMenuBalanco(
-          titulo: 'Nova coleta/balanço',
-          subtitulo: 'Escolha o tipo, informe o arquivo e conte os produtos.',
+          titulo: 'Nova coleta',
+          subtitulo: 'Escolha a finalidade e conte os produtos.',
           icone: Icons.playlist_add_check_outlined,
           detalhe: itens.isEmpty ? null : '${itens.length} item(ns) em aberto',
           onTap: abrirNovaColeta,
@@ -1524,9 +1816,11 @@ class _BalancoPageState extends State<BalancoPage> {
 
   Widget resumoDocumentoAtual() {
     final tipo = rotuloTipoDocumento(tipoDocumentoAtual);
-    final nome = nomeArquivoAtual.isEmpty
-        ? 'Nome do arquivo não informado'
-        : nomeArquivoAtual;
+    final nome = descricaoNomeArquivo(
+      tipoDocumento: tipoDocumentoAtual,
+      nomeArquivo: nomeArquivoAtual,
+      clienteNome: clienteNomeAtual,
+    );
 
     return Container(
       width: double.infinity,
@@ -1545,7 +1839,7 @@ class _BalancoPageState extends State<BalancoPage> {
               color: cor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.description_outlined, color: cor),
+            child: Icon(iconeTipoDocumento(tipoDocumentoAtual), color: cor),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1570,7 +1864,7 @@ class _BalancoPageState extends State<BalancoPage> {
             ),
           ),
           IconButton(
-            tooltip: 'Editar tipo e nome do arquivo',
+            tooltip: 'Editar tipo e dados do arquivo',
             onPressed: salvandoLista ? null : editarConfiguracaoAtual,
             icon: const Icon(Icons.edit_outlined),
             color: cor,
@@ -2081,7 +2375,12 @@ class _BalancoPageState extends State<BalancoPage> {
                     const SizedBox(height: 6),
                     Text(
                       '${rotuloTipoDocumento(lista.tipoDocumento)} | '
-                      '${lista.nomeArquivoInformado.isEmpty ? 'Nome pendente' : lista.nomeArquivoInformado}',
+                      '${descricaoNomeArquivo(
+                        tipoDocumento: lista.tipoDocumento,
+                        nomeArquivo: lista.nomeArquivoInformado,
+                        clienteNome: lista.clienteNome,
+                        arquivoGerado: lista.arquivoNome,
+                      )}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -2245,6 +2544,7 @@ class _ListaBalancoResumo {
   final String status;
   final String tipoDocumento;
   final String nomeArquivoInformado;
+  final String clienteNome;
   final int totalItens;
   final String criadoPor;
   final String criadoEm;
@@ -2257,6 +2557,7 @@ class _ListaBalancoResumo {
     required this.status,
     required this.tipoDocumento,
     required this.nomeArquivoInformado,
+    required this.clienteNome,
     required this.totalItens,
     required this.criadoPor,
     required this.criadoEm,
@@ -2269,9 +2570,11 @@ class _ListaBalancoResumo {
 class _ConfiguracaoDocumento {
   final String tipoDocumento;
   final String nomeArquivo;
+  final String clienteNome;
 
   const _ConfiguracaoDocumento({
     required this.tipoDocumento,
     required this.nomeArquivo,
+    required this.clienteNome,
   });
 }
