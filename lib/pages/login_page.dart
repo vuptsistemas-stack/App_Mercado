@@ -399,46 +399,55 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     Positioned.fill(
-                      child: Center(
-                        child: Transform.scale(
-                          scale: escala,
-                          alignment: Alignment.topCenter,
-                          child: SizedBox(
-                            width: larguraConteudo,
-                            height: altura / escala,
-                            child: Column(
-                              children: [
-                                SizedBox(height: alturaHero - 76),
-                                _CardMarcaLogin(
-                                  logoUrl: logoMercadoUrl,
-                                  nomeMercado: nomeMercado,
-                                  subtitulo: subtitulo,
-                                  corPrimaria: corPrimaria,
+                      child: SingleChildScrollView(
+                        physics: const ClampingScrollPhysics(),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: Center(
+                          child: Transform.scale(
+                            scale: escala,
+                            alignment: Alignment.topCenter,
+                            child: SizedBox(
+                              width: larguraConteudo,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: altura / escala,
                                 ),
-                                const SizedBox(height: 14),
-                                _FormularioLoginSemRolagem(
-                                  corPrimaria: corPrimaria,
-                                  carregandoGoogle: carregandoGoogle,
-                                  carregandoApple: carregandoApple,
-                                  carregandoEmail: carregandoEmail,
-                                  mostrarApple: mostrarLoginApple,
-                                  senhaVisivel: senhaVisivel,
-                                  emailController: emailController,
-                                  senhaController: senhaController,
-                                  onGoogle: loginGoogle,
-                                  onApple: loginApple,
-                                  onEntrar: loginEmail,
-                                  onCriarConta: abrirCadastroCliente,
-                                  onResetarSenha: abrirRecuperacaoSenha,
-                                  onContinuarSemConta:
-                                      widget.onContinuarSemConta,
-                                  onToggleSenha: () {
-                                    setState(() {
-                                      senhaVisivel = !senhaVisivel;
-                                    });
-                                  },
+                                child: Column(
+                                  children: [
+                                    SizedBox(height: alturaHero - 76),
+                                    _CardMarcaLogin(
+                                      logoUrl: logoMercadoUrl,
+                                      nomeMercado: nomeMercado,
+                                      subtitulo: subtitulo,
+                                      corPrimaria: corPrimaria,
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _FormularioLoginSemRolagem(
+                                      corPrimaria: corPrimaria,
+                                      carregandoGoogle: carregandoGoogle,
+                                      carregandoApple: carregandoApple,
+                                      carregandoEmail: carregandoEmail,
+                                      mostrarApple: mostrarLoginApple,
+                                      senhaVisivel: senhaVisivel,
+                                      emailController: emailController,
+                                      senhaController: senhaController,
+                                      onGoogle: loginGoogle,
+                                      onApple: loginApple,
+                                      onEntrar: loginEmail,
+                                      onCriarConta: abrirCadastroCliente,
+                                      onResetarSenha: abrirRecuperacaoSenha,
+                                      onContinuarSemConta:
+                                          widget.onContinuarSemConta,
+                                      onToggleSenha: () {
+                                        setState(() {
+                                          senhaVisivel = !senhaVisivel;
+                                        });
+                                      },
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -903,8 +912,14 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                GestureDetector(
-                  onTap: bloqueado ? null : onCriarConta,
+                TextButton(
+                  onPressed: bloqueado ? null : onCriarConta,
+                  style: TextButton.styleFrom(
+                    foregroundColor: corPrimaria,
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                  ),
                   child: Text(
                     'Cadastre-se',
                     style: TextStyle(
