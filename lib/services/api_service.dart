@@ -4,12 +4,16 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/produto.dart';
+import 'classificacao_ncm_service.dart';
 import 'loja_funcionamento_service.dart';
 import 'produto_configuracao_app_service.dart';
 import 'sessao_mercado_cliente.dart' as sessao;
 
 class ApiService {
   static const Duration _timeout = Duration(seconds: 20);
+  static List<Produto>? _catalogoClassificadoCache;
+  static DateTime? _catalogoClassificadoEm;
+  static Future<List<Produto>>? _catalogoClassificadoCarregando;
 
   /// URL da API da loja carregada pela Central.
   ///
@@ -400,7 +404,9 @@ class ApiService {
           .range(inicio, fim);
 
       final listaResposta = List<dynamic>.from(resposta);
-      final produtos = _produtosBancoParaModelos(listaResposta);
+      final produtos = await ProdutoConfiguracaoAppService.aplicarConfiguracoes(
+        _produtosBancoParaModelos(listaResposta),
+      );
 
       // ignore: avoid_print
       print(
@@ -535,7 +541,7 @@ class ApiService {
     }
 
     try {
-      return _listarProdutosApiPaginados(
+      return await _listarProdutosApiPaginados(
         path: '/produtos',
         pagina: pagina,
         limite: limite,
@@ -952,7 +958,7 @@ class ApiService {
               : _filtrarProdutosPorBuscaPrecisa(produtos, termoOriginal);
 
           if (produtos.isNotEmpty) {
-            return aplicarFiltroEstoqueApp(produtos);
+            return await aplicarFiltroEstoqueApp(produtos);
           }
         }
       } catch (_) {}
@@ -1148,6 +1154,66 @@ class ApiService {
   }
 
   static Future<List<String>> listarCategorias() async {
+    if (ClassificacaoNcmService.usaSomenteNcm) {
+      final regras = await ClassificacaoNcmService.regrasAtivas();
+      final configuracoes =
+          await LojaFuncionamentoService.buscarConfiguracoes();
+      final categorias = <String, int>{};
+      for (final regra in regras) {
+        final categoria = regra.categoria.trim();
+        if (categoria.isEmpty ||
+            _categoriaBloqueada(categoria, configuracoes)) {
+          continue;
+        }
+        final atual = categorias[categoria];
+        if (atual == null || regra.ordemCategoria < atual) {
+          categorias[categoria] = regra.ordemCategoria;
+        }
+      }
+      final lista = categorias.keys.toList()
+        ..sort((a, b) {
+          final ordem = categorias[a]!.compareTo(categorias[b]!);
+          return ordem != 0
+              ? ordem
+              : a.toUpperCase().compareTo(b.toUpperCase());
+        });
+      return lista;
+    }
+    if (ClassificacaoNcmService.usaHibrido) {
+      final resumo = await ClassificacaoNcmService.categoriasHibridas();
+      if (resumo.isNotEmpty) {
+        final configuracoes =
+            await LojaFuncionamentoService.buscarConfiguracoes();
+        return resumo
+            .map((item) => item['nome']?.toString().trim() ?? '')
+            .where((categoria) => categoria.isNotEmpty)
+            .where(
+              (categoria) => !_categoriaBloqueada(categoria, configuracoes),
+            )
+            .toList(growable: false);
+      }
+    }
+    if (ClassificacaoNcmService.usaCatalogoClassificado) {
+      final produtos = await _listarCatalogoClassificado();
+      final categorias = <String, int>{};
+      for (final produto in produtos) {
+        final categoria = produto.categoria.trim();
+        if (categoria.isEmpty) continue;
+        final atual = categorias[categoria];
+        if (atual == null || produto.ordemCategoria < atual) {
+          categorias[categoria] = produto.ordemCategoria;
+        }
+      }
+      final lista = categorias.keys.toList()
+        ..sort((a, b) {
+          final ordem = categorias[a]!.compareTo(categorias[b]!);
+          return ordem != 0
+              ? ordem
+              : a.toUpperCase().compareTo(b.toUpperCase());
+        });
+      return lista;
+    }
+
     if (_usarBancoLoja) {
       // ignore: avoid_print
       print('APP_MERCADO PRODUTOS: usando BANCO_LOJA categorias');
@@ -1209,6 +1275,75 @@ class ApiService {
     final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
     if (_categoriaBloqueada(categoria, configuracoes)) {
       return [];
+    }
+
+    if (ClassificacaoNcmService.usaSomenteNcm) {
+      final regras = await ClassificacaoNcmService.regrasAtivas();
+      final subcategorias = <String, int>{};
+      for (final regra in regras) {
+        if (regra.categoria.trim().toUpperCase() !=
+            categoria.trim().toUpperCase()) {
+          continue;
+        }
+        final subcategoria = regra.subcategoria.trim();
+        if (subcategoria.isEmpty) continue;
+        final atual = subcategorias[subcategoria];
+        if (atual == null || regra.ordemSubcategoria < atual) {
+          subcategorias[subcategoria] = regra.ordemSubcategoria;
+        }
+      }
+      final lista = subcategorias.keys.toList()
+        ..sort((a, b) {
+          final ordem = subcategorias[a]!.compareTo(subcategorias[b]!);
+          return ordem != 0
+              ? ordem
+              : a.toUpperCase().compareTo(b.toUpperCase());
+        });
+      return lista;
+    }
+
+    if (ClassificacaoNcmService.usaHibrido) {
+      final resumo = await ClassificacaoNcmService.categoriasHibridas();
+      for (final item in resumo) {
+        if ((item['nome']?.toString().trim().toUpperCase() ?? '') !=
+            categoria.trim().toUpperCase()) {
+          continue;
+        }
+        final subcategorias = item['subcategorias'];
+        if (subcategorias is! List) return [];
+        return subcategorias
+            .whereType<Map>()
+            .map(
+              (subcategoria) => subcategoria['nome']?.toString().trim() ?? '',
+            )
+            .where((subcategoria) => subcategoria.isNotEmpty)
+            .toList(growable: false);
+      }
+    }
+
+    if (ClassificacaoNcmService.usaCatalogoClassificado) {
+      final produtos = await _listarCatalogoClassificado();
+      final subcategorias = <String, int>{};
+      for (final produto in produtos) {
+        if (produto.categoria.trim().toUpperCase() !=
+            categoria.trim().toUpperCase()) {
+          continue;
+        }
+        final subcategoria = produto.subcategoria.trim();
+        if (subcategoria.isEmpty) continue;
+        final atual = subcategorias[subcategoria];
+        if (atual == null || produto.ordemSubcategoria < atual) {
+          subcategorias[subcategoria] = produto.ordemSubcategoria;
+        }
+      }
+      final lista = subcategorias.keys.toList()
+        ..sort((a, b) {
+          final ordem = subcategorias[a]!.compareTo(subcategorias[b]!);
+          return ordem != 0
+              ? ordem
+              : a.toUpperCase().compareTo(b.toUpperCase());
+        });
+      return lista;
     }
 
     if (_usarBancoLoja) {
@@ -1275,6 +1410,15 @@ class ApiService {
       return [];
     }
 
+    if (ClassificacaoNcmService.usaCatalogoClassificado) {
+      return _filtrarCatalogoClassificado(
+        categoria: categoria,
+        pagina: pagina,
+        limite: limite,
+        busca: busca,
+      );
+    }
+
     if (_usarBancoLoja) {
       // ignore: avoid_print
       print('APP_MERCADO PRODUTOS: usando BANCO_LOJA categoria=$categoria');
@@ -1287,7 +1431,7 @@ class ApiService {
     }
 
     try {
-      return _listarProdutosApiPaginados(
+      return await _listarProdutosApiPaginados(
         path: '/produtos/categoria/${Uri.encodeComponent(categoria)}',
         pagina: pagina,
         limite: limite,
@@ -1304,6 +1448,15 @@ class ApiService {
     int limite = 20,
     String busca = '',
   }) async {
+    if (ClassificacaoNcmService.usaCatalogoClassificado) {
+      return _filtrarCatalogoClassificado(
+        subcategoria: subcategoria,
+        pagina: pagina,
+        limite: limite,
+        busca: busca,
+      );
+    }
+
     if (_usarBancoLoja) {
       // ignore: avoid_print
       print(
@@ -1318,7 +1471,7 @@ class ApiService {
     }
 
     try {
-      return _listarProdutosApiPaginados(
+      return await _listarProdutosApiPaginados(
         path: '/produtos/subcategoria/${Uri.encodeComponent(subcategoria)}',
         pagina: pagina,
         limite: limite,
@@ -1327,6 +1480,109 @@ class ApiService {
     } catch (_) {}
 
     return [];
+  }
+
+  static Future<List<Produto>> _listarCatalogoClassificado() async {
+    final cache = _catalogoClassificadoCache;
+    final carregadoEm = _catalogoClassificadoEm;
+    if (cache != null &&
+        carregadoEm != null &&
+        DateTime.now().difference(carregadoEm) < const Duration(minutes: 2)) {
+      return cache;
+    }
+    final carregando = _catalogoClassificadoCarregando;
+    if (carregando != null) return carregando;
+
+    final futuro = _carregarCatalogoClassificado();
+    _catalogoClassificadoCarregando = futuro;
+    try {
+      final produtos = await futuro;
+      _catalogoClassificadoCache = produtos;
+      _catalogoClassificadoEm = DateTime.now();
+      return produtos;
+    } finally {
+      _catalogoClassificadoCarregando = null;
+    }
+  }
+
+  static Future<List<Produto>> _carregarCatalogoClassificado() async {
+    final produtos = <Produto>[];
+    final chaves = <String>{};
+    const limite = 250;
+
+    for (var pagina = 1; pagina <= 80; pagina++) {
+      final lote = _usarBancoLoja
+          ? await _listarProdutosBancoLoja(pagina: pagina, limite: limite)
+          : await _buscarProdutosApiPagina(
+              path: '/produtos',
+              pagina: pagina,
+              limite: limite,
+            );
+      if (lote.isEmpty) break;
+      var novosNoLote = 0;
+      for (final produto in lote.take(limite)) {
+        final chave = _chaveProdutoUnico(produto);
+        if (chave.isEmpty || !chaves.add(chave)) continue;
+        produtos.add(produto);
+        novosNoLote++;
+      }
+      if (novosNoLote == 0) break;
+    }
+
+    final visiveis = await aplicarFiltroEstoqueApp(produtos);
+    visiveis.sort((a, b) {
+      final categoria = a.ordemCategoria.compareTo(b.ordemCategoria);
+      if (categoria != 0) return categoria;
+      final subcategoria = a.ordemSubcategoria.compareTo(b.ordemSubcategoria);
+      if (subcategoria != 0) return subcategoria;
+      return a.nome.toUpperCase().compareTo(b.nome.toUpperCase());
+    });
+    return visiveis;
+  }
+
+  static Future<List<Produto>> _filtrarCatalogoClassificado({
+    String categoria = '',
+    String subcategoria = '',
+    int pagina = 1,
+    int limite = 20,
+    String busca = '',
+  }) async {
+    final catalogo = await _listarCatalogoClassificado();
+    final categoriaFiltro = categoria.trim().toUpperCase();
+    final subcategoriaFiltro = subcategoria.trim().toUpperCase();
+    final buscaFiltro = _normalizarTextoBusca(busca);
+    final filtrados = catalogo.where((produto) {
+      if (categoriaFiltro.isNotEmpty &&
+          produto.categoria.trim().toUpperCase() != categoriaFiltro) {
+        return false;
+      }
+      if (subcategoriaFiltro.isNotEmpty &&
+          produto.subcategoria.trim().toUpperCase() != subcategoriaFiltro) {
+        return false;
+      }
+      if (buscaFiltro.isEmpty) return true;
+      final texto = _normalizarTextoBusca(
+        '${produto.nome} ${produto.ean} ${produto.categoria} ${produto.subcategoria} ${produto.ncm}',
+      );
+      return texto.contains(buscaFiltro);
+    }).toList();
+
+    final paginaCorrigida = pagina < 1 ? 1 : pagina;
+    final limiteCorrigido = limite < 1 ? 20 : limite;
+    final inicio = (paginaCorrigida - 1) * limiteCorrigido;
+    if (inicio >= filtrados.length) return [];
+    final fimCalculado = inicio + limiteCorrigido + 1;
+    final fim = fimCalculado > filtrados.length
+        ? filtrados.length
+        : fimCalculado;
+    return filtrados.sublist(inicio, fim);
+  }
+
+  static void limparCacheClassificacao() {
+    _catalogoClassificadoCache = null;
+    _catalogoClassificadoEm = null;
+    _catalogoClassificadoCarregando = null;
+    ClassificacaoNcmService.limparCache();
   }
 
   static Future<Produto?> buscarProdutoAtualizado(Produto produto) async {

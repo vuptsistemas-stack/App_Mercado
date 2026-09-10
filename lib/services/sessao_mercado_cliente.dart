@@ -28,6 +28,7 @@ class SessaoMercadoCliente {
 
   static String apiBaseUrl = '';
   static String fonteProdutosCentral = '';
+  static String categoriaOrigem = 'HIBRIDO';
   static String logoUrl = '';
   static String whatsapp = '';
 
@@ -96,6 +97,15 @@ class SessaoMercadoCliente {
       dados['fonteProdutos'],
       AppMercadoConfig.fonteProdutos,
     ).toUpperCase();
+
+    categoriaOrigem = primeiroTexto(
+      dados['categoria_origem'],
+      dados['categoriaOrigem'],
+      'HIBRIDO',
+    ).toUpperCase();
+    if (!const {'API', 'NCM', 'HIBRIDO'}.contains(categoriaOrigem)) {
+      categoriaOrigem = 'HIBRIDO';
+    }
 
     logoUrl = texto(
       dados['logo_url'] ?? dados['logo_login_url'] ?? dados['app_logo_url'],
@@ -446,6 +456,7 @@ class SessaoMercadoCliente {
 
     apiBaseUrl = '';
     fonteProdutosCentral = '';
+    categoriaOrigem = 'HIBRIDO';
     logoUrl = '';
     whatsapp = '';
 

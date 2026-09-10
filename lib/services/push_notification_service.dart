@@ -143,7 +143,8 @@ class PushNotificationService {
 
   void _tratarAberturaNotificacao(RemoteMessage mensagem) {
     final evento = mensagem.data['evento']?.toString().toUpperCase() ?? '';
-    if (evento == 'JORNAL_PUBLICADO') {
+    final destino = mensagem.data['destino']?.toString().trim();
+    if (destino == 'jornal_promocoes' || evento == 'JORNAL_PUBLICADO') {
       NotificacaoStatusPedidoService.instance.abrirDestino('jornal_promocoes');
     } else if (evento == 'STATUS_PEDIDO') {
       NotificacaoStatusPedidoService.instance.abrirDestino('pedidos');

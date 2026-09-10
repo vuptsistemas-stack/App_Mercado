@@ -903,6 +903,7 @@ class _FormularioLoginSemRolagem extends StatelessWidget {
           Center(
             child: Wrap(
               alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Text(
                   'Não tem conta? ',

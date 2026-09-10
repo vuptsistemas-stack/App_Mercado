@@ -10,6 +10,11 @@ class Produto {
   final String produtoAppId;
   final String categoria;
   final String subcategoria;
+  final String categoriaApi;
+  final String subcategoriaApi;
+  final String ncm;
+  final int ordemCategoria;
+  final int ordemSubcategoria;
 
   /// Campo opcional para quando a API já retornar uma imagem.
   /// No fluxo atual, as imagens continuam vindo pelo ImagemService/Central.
@@ -27,10 +32,30 @@ class Produto {
     this.produtoAppId = '',
     this.categoria = '',
     this.subcategoria = '',
+    this.categoriaApi = '',
+    this.subcategoriaApi = '',
+    this.ncm = '',
+    this.ordemCategoria = 0,
+    this.ordemSubcategoria = 0,
     this.imagemUrl = '',
   });
 
   factory Produto.fromJson(Map<String, dynamic> json) {
+    final categoriaApi = _texto(
+      json['categoria_api'] ??
+          json['categoria'] ??
+          json['nome_grupo'] ??
+          json['grupo'] ??
+          json['categoria_nome'],
+    );
+    final subcategoriaApi = _texto(
+      json['subcategoria_api'] ??
+          json['subcategoria'] ??
+          json['nome_subgrupo'] ??
+          json['subgrupo'] ??
+          json['subcategoria_nome'],
+    );
+
     return Produto(
       produtoId: _inteiro(
         json['produto_id'] ??
@@ -93,18 +118,22 @@ class Produto {
             json['produtos_app_id'] ??
             json['id_produto_app'],
       ),
-      categoria: _texto(
-        json['categoria'] ??
-            json['nome_grupo'] ??
-            json['grupo'] ??
-            json['categoria_nome'],
+      categoria: categoriaApi,
+      subcategoria: subcategoriaApi,
+      categoriaApi: categoriaApi,
+      subcategoriaApi: subcategoriaApi,
+      ncm: _texto(
+        json['ncm'] ??
+            json['NCM'] ??
+            json['codigo_ncm'] ??
+            json['codigoNcm'] ??
+            json['cod_ncm'] ??
+            json['ncm_codigo'] ??
+            json['classificacao_fiscal'] ??
+            json['classificacaoFiscal'],
       ),
-      subcategoria: _texto(
-        json['subcategoria'] ??
-            json['nome_subgrupo'] ??
-            json['subgrupo'] ??
-            json['subcategoria_nome'],
-      ),
+      ordemCategoria: _inteiro(json['ordem_categoria']),
+      ordemSubcategoria: _inteiro(json['ordem_subcategoria']),
       imagemUrl: _texto(
         json['imagem_url'] ??
             json['imagemUrl'] ??
@@ -227,6 +256,11 @@ class Produto {
       'produto_app_id': produtoAppId,
       'categoria': categoria,
       'subcategoria': subcategoria,
+      'categoria_api': categoriaApi,
+      'subcategoria_api': subcategoriaApi,
+      'ncm': ncm,
+      'ordem_categoria': ordemCategoria,
+      'ordem_subcategoria': ordemSubcategoria,
       'imagem_url': imagemUrl,
     };
   }
@@ -243,6 +277,11 @@ class Produto {
     String? produtoAppId,
     String? categoria,
     String? subcategoria,
+    String? categoriaApi,
+    String? subcategoriaApi,
+    String? ncm,
+    int? ordemCategoria,
+    int? ordemSubcategoria,
     String? imagemUrl,
   }) {
     return Produto(
@@ -257,6 +296,11 @@ class Produto {
       produtoAppId: produtoAppId ?? this.produtoAppId,
       categoria: categoria ?? this.categoria,
       subcategoria: subcategoria ?? this.subcategoria,
+      categoriaApi: categoriaApi ?? this.categoriaApi,
+      subcategoriaApi: subcategoriaApi ?? this.subcategoriaApi,
+      ncm: ncm ?? this.ncm,
+      ordemCategoria: ordemCategoria ?? this.ordemCategoria,
+      ordemSubcategoria: ordemSubcategoria ?? this.ordemSubcategoria,
       imagemUrl: imagemUrl ?? this.imagemUrl,
     );
   }
