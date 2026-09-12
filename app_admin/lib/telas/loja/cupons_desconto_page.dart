@@ -345,9 +345,9 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
     final valorMinimoController = TextEditingController(
       text: cupom == null
           ? ''
-          : numero(cupom['valor_minimo'])
-                .toStringAsFixed(2)
-                .replaceAll('.', ','),
+          : numero(
+              cupom['valor_minimo'],
+            ).toStringAsFixed(2).replaceAll('.', ','),
     );
     final limiteUsoController = TextEditingController(
       text: cupom == null || inteiro(cupom['limite_uso']) == 0
@@ -374,6 +374,11 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
         ? 'percentual'
         : 'valor';
     bool ativo = valorBool(cupom?['ativo'], true);
+    bool usoUnicoPorCliente = valorBool(cupom?['uso_unico_por_cliente'], false);
+    bool somentePrimeiraCompra = valorBool(
+      cupom?['somente_primeira_compra'],
+      false,
+    );
     DateTime? dataInicio = dataCupom(cupom?['data_inicio']);
     DateTime? dataFim = dataCupom(cupom?['data_fim']);
 
@@ -474,6 +479,8 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
                     : isoInicioDia(dataInicio),
                 'data_fim': dataFim == null ? null : isoFimDia(dataFim),
                 'limite_uso': limiteUso,
+                'uso_unico_por_cliente': usoUnicoPorCliente,
+                'somente_primeira_compra': somentePrimeiraCompra,
                 'ativo': ativo,
               };
 
@@ -745,7 +752,8 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
                           prefixIcon: const Icon(
                             Icons.production_quantity_limits,
                           ),
-                          helperText: 'Deixe vazio ou 0 para não exigir quantidade mínima.',
+                          helperText:
+                              'Deixe vazio ou 0 para não exigir quantidade mínima.',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -768,6 +776,40 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: usoUnicoPorCliente,
+                        title: const Text('Uso único por cliente'),
+                        subtitle: const Text(
+                          'Cada cliente poderá usar este cupom somente uma vez.',
+                        ),
+                        onChanged: salvandoFormulario
+                            ? null
+                            : (value) {
+                                setDialogState(() {
+                                  usoUnicoPorCliente = value;
+                                  erroFormulario = null;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 4),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: somentePrimeiraCompra,
+                        title: const Text('Somente na primeira compra'),
+                        subtitle: const Text(
+                          'O cliente não poderá usar este cupom após já ter feito um pedido.',
+                        ),
+                        onChanged: salvandoFormulario
+                            ? null
+                            : (value) {
+                                setDialogState(() {
+                                  somentePrimeiraCompra = value;
+                                  erroFormulario = null;
+                                });
+                              },
                       ),
                       const SizedBox(height: 10),
                       Row(
@@ -1044,6 +1086,18 @@ class _CuponsDescontoPageState extends State<CuponsDescontoPage> {
                       ? '$quantidadeUsada / $limiteUso'
                       : '$quantidadeUsada / ilimitado',
                 ),
+                if (valorBool(cupom['uso_unico_por_cliente'], false))
+                  _miniInfo(
+                    icon: Icons.person_outline,
+                    label: 'Por cliente',
+                    valor: 'Uma vez',
+                  ),
+                if (valorBool(cupom['somente_primeira_compra'], false))
+                  _miniInfo(
+                    icon: Icons.shopping_cart_checkout_outlined,
+                    label: 'Disponível em',
+                    valor: 'Primeira compra',
+                  ),
                 _miniInfo(
                   icon: Icons.calendar_month_outlined,
                   label: 'Período',

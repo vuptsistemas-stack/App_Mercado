@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../config/app_mercado_config.dart';
 import '../models/produto.dart';
 import 'classificacao_ncm_service.dart';
 import 'loja_funcionamento_service.dart';
@@ -64,6 +65,11 @@ class ApiService {
   static bool get usandoBancoLoja => _usarBancoLoja;
 
   static SupabaseClient get _supabaseLoja => Supabase.instance.client;
+  static final SupabaseClient _supabaseCentral = SupabaseClient(
+    AppMercadoConfig.centralSupabaseUrl,
+    AppMercadoConfig.centralSupabaseAnonKey,
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
+  );
 
   static Map<String, dynamic> _normalizarProdutoBancoLoja(
     Map<String, dynamic> item,
@@ -558,90 +564,82 @@ class ApiService {
     final limiteCorrigido = limite < 1 ? 50 : limite;
 
     try {
-      final resposta = await _supabaseLoja
-          .from('pedido_itens')
-          .select(
-            'id, pedido_id, produto_id, nome_produto, ean, quantidade, preco_unitario, unidade_medida, peso_variavel, peso_medio_kg, criado_em',
-          )
-          .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
-          .order('criado_em', ascending: false)
-          .limit(1500);
+      final sessaoLoja = _supabaseLoja.auth.currentSession;
+      if (sessaoLoja == null) return [];
 
-      final agrupados = <String, _ProdutoVendidoApp>{};
-
-      for (final item in resposta) {
-        final dados = Map<String, dynamic>.from(item);
-        final chave = _chaveProdutoVendido(dados);
-
-        if (chave.isEmpty) continue;
-
-        final quantidade = _numero(dados['quantidade']);
-        final ultimaVenda = _dataHora(dados['criado_em']);
-        final pedidoId = _chavePedidoVenda(dados);
-
-        if (agrupados.containsKey(chave)) {
-          agrupados[chave]!.registrarVenda(
-            pedidoId: pedidoId,
-            quantidade: quantidade,
-            dataVenda: ultimaVenda,
-          );
-        } else {
-          agrupados[chave] = _ProdutoVendidoApp(
-            dados: dados,
-            pedidoId: pedidoId,
-            quantidadeVendida: quantidade,
-            ultimaVenda: ultimaVenda,
-          );
-        }
+      final resposta = await _supabaseCentral.functions.invoke(
+        'listar-produtos-mais-vendidos',
+        body: {
+          'mercado_id': sessao.SessaoMercadoCliente.mercadoIdObrigatorio,
+          'loja_access_token': sessaoLoja.accessToken,
+          'limite': limiteCorrigido * 2,
+        },
+      );
+      final respostaDados = resposta.data;
+      if (resposta.status >= 400 ||
+          respostaDados is! Map ||
+          respostaDados['sucesso'] != true) {
+        final mensagem = respostaDados is Map
+            ? respostaDados['erro']?.toString()
+            : respostaDados?.toString();
+        throw Exception(
+          mensagem ?? 'Não foi possível consultar mais vendidos.',
+        );
       }
-
-      final maisVendidos = agrupados.values.toList()
-        ..sort((a, b) {
-          final comparacaoPedidos = b.totalPedidos.compareTo(a.totalPedidos);
-
-          if (comparacaoPedidos != 0) {
-            return comparacaoPedidos;
-          }
-
-          final comparacaoQuantidade = b.quantidadeVendida.compareTo(
-            a.quantidadeVendida,
-          );
-
-          if (comparacaoQuantidade != 0) {
-            return comparacaoQuantidade;
-          }
-
-          return b.ultimaVenda.compareTo(a.ultimaVenda);
-        });
+      final itensVendidos = List<dynamic>.from(
+        respostaDados['vendas'] ?? const [],
+      );
 
       final produtos = <Produto>[];
       final chavesAdicionadas = <String>{};
+      final vendas = <_ProdutoVendidoApp>[];
 
-      for (final venda in maisVendidos) {
-        if (produtos.length >= limiteCorrigido) {
-          break;
+      for (var indice = 0; indice < itensVendidos.length; indice++) {
+        final item = itensVendidos[indice];
+        if (item is! Map) continue;
+        vendas.add(
+          _ProdutoVendidoApp(
+            dados: Map<String, dynamic>.from(item),
+            pedidoId: 'ranking:$indice',
+            quantidadeVendida: 0,
+            ultimaVenda: DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+        );
+      }
+
+      const tamanhoLote = 6;
+      for (
+        var inicio = 0;
+        inicio < vendas.length && produtos.length < limiteCorrigido;
+        inicio += tamanhoLote
+      ) {
+        final fim = inicio + tamanhoLote > vendas.length
+            ? vendas.length
+            : inicio + tamanhoLote;
+        final produtosAtualizados = await Future.wait(
+          vendas.sublist(inicio, fim).map(_buscarProdutoAtualPorVenda),
+        );
+
+        for (final produtoAtual in produtosAtualizados) {
+          if (produtos.length >= limiteCorrigido) break;
+          if (produtoAtual == null) continue;
+
+          final chaveProduto = _chaveProdutoModelo(produtoAtual);
+
+          if (chaveProduto.isEmpty ||
+              chavesAdicionadas.contains(chaveProduto)) {
+            continue;
+          }
+
+          chavesAdicionadas.add(chaveProduto);
+          produtos.add(produtoAtual);
         }
-
-        final produtoAtual = await _buscarProdutoAtualPorVenda(venda);
-
-        if (produtoAtual == null) {
-          continue;
-        }
-
-        final chaveProduto = _chaveProdutoModelo(produtoAtual);
-
-        if (chaveProduto.isEmpty || chavesAdicionadas.contains(chaveProduto)) {
-          continue;
-        }
-
-        chavesAdicionadas.add(chaveProduto);
-        produtos.add(produtoAtual);
       }
 
       // ignore: avoid_print
       print(
         'APP_MERCADO MAIS_VENDIDOS_APP: retornou ${produtos.length} produto(s) '
-        'de ${maisVendidos.length} produto(s) mais presentes em pedidos no app.',
+        'de ${itensVendidos.length} produto(s) ranqueados pelo servidor.',
       );
 
       return produtos;
@@ -710,50 +708,6 @@ class ApiService {
     }
 
     return null;
-  }
-
-  static String _chaveProdutoVendido(Map<String, dynamic> item) {
-    final ean = _normalizarEan(_texto(item['ean']));
-
-    if (ean.isNotEmpty) {
-      return 'ean:$ean';
-    }
-
-    final nome = _normalizarNomeProduto(_texto(item['nome_produto']));
-
-    if (nome.isNotEmpty) {
-      return 'nome:$nome';
-    }
-
-    final produtoId = _inteiro(item['produto_id']);
-
-    if (produtoId > 0) {
-      return 'id:$produtoId';
-    }
-
-    return '';
-  }
-
-  static String _chavePedidoVenda(Map<String, dynamic> item) {
-    final pedidoId = _texto(item['pedido_id']);
-
-    if (pedidoId.isNotEmpty) {
-      return 'pedido:$pedidoId';
-    }
-
-    final itemId = _texto(item['id']);
-
-    if (itemId.isNotEmpty) {
-      return 'item:$itemId';
-    }
-
-    final criadoEm = _texto(item['criado_em']);
-
-    if (criadoEm.isNotEmpty) {
-      return 'data:$criadoEm';
-    }
-
-    return 'sem_pedido:${DateTime.now().microsecondsSinceEpoch}';
   }
 
   static String _chaveProdutoModelo(Produto produto) {
@@ -861,60 +815,17 @@ class ApiService {
     }).toList();
   }
 
-  static String _texto(dynamic valor) {
-    return valor?.toString().trim() ?? '';
-  }
-
-  static int _inteiro(dynamic valor) {
-    return _numero(valor).round();
-  }
-
-  static double _numero(dynamic valor) {
-    if (valor == null) {
-      return 0;
-    }
-
-    if (valor is num) {
-      return valor.toDouble();
-    }
-
-    var texto = valor.toString().trim();
-
-    if (texto.isEmpty) {
-      return 0;
-    }
-
-    texto = texto.replaceAll('R\$', '').replaceAll(' ', '').trim();
-
-    if (texto.contains(',') && texto.contains('.')) {
-      texto = texto.replaceAll('.', '').replaceAll(',', '.');
-    } else {
-      texto = texto.replaceAll(',', '.');
-    }
-
-    return double.tryParse(texto) ?? 0;
-  }
-
-  static DateTime _dataHora(dynamic valor) {
-    if (valor == null) {
-      return DateTime.fromMillisecondsSinceEpoch(0);
-    }
-
-    return DateTime.tryParse(valor.toString()) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
-  }
-
   static Future<List<Produto>> buscarProdutos(String busca) async {
-    if (_usarBancoLoja) {
-      // ignore: avoid_print
-      print('APP_MERCADO PRODUTOS: usando BANCO_LOJA busca=$busca');
-      return _listarProdutosBancoLoja(busca: busca, limite: 60);
-    }
-
     final termoOriginal = busca.trim();
 
     if (termoOriginal.isEmpty) {
       return listarProdutosIniciais();
+    }
+
+    if (_usarBancoLoja) {
+      // ignore: avoid_print
+      print('APP_MERCADO PRODUTOS: usando BANCO_LOJA busca=$busca');
+      return _listarProdutosBancoLoja(busca: termoOriginal, limite: 60);
     }
 
     final ehNumerico = RegExp(r'^[0-9]+$').hasMatch(termoOriginal);
@@ -925,19 +836,13 @@ class ApiService {
       termoBusca = termoOriginal.padLeft(14, '0');
     }
 
-    // IMPORTANTE:
-    // Antes havia uma segunda tentativa em /produto?busca=...
-    // Em algumas APIs essa rota retorna a listagem normal quando não encontra
-    // o termo, causando produtos aleatórios para buscas como "fralda".
-    //
-    // Agora a busca textual usa apenas /produto/descricao e ainda filtra
-    // localmente pelo termo digitado. Assim, "fralda" só mostra produtos
-    // cujo nome realmente contenha "fralda".
-    final urls = ehNumerico
-        ? [_uri('/produto/ean/${Uri.encodeComponent(termoBusca)}')]
-        : [_uri('/produto/descricao/${Uri.encodeComponent(termoBusca)}')];
+    final termosConsulta = [termoBusca];
+    final resultados = <Produto>[];
 
-    for (final url in urls) {
+    for (final termoConsulta in termosConsulta) {
+      final url = ehNumerico
+          ? _uri('/produto/ean/${Uri.encodeComponent(termoConsulta)}')
+          : _uri('/produto/descricao/${Uri.encodeComponent(termoConsulta)}');
       try {
         final response = await _get(url);
 
@@ -955,16 +860,43 @@ class ApiService {
                   termoOriginal,
                   termoBusca,
                 )
-              : _filtrarProdutosPorBuscaPrecisa(produtos, termoOriginal);
+              : _filtrarProdutosPorBuscaPrecisa(produtos, termoConsulta);
 
           if (produtos.isNotEmpty) {
-            return await aplicarFiltroEstoqueApp(produtos);
+            resultados.addAll(produtos);
           }
         }
       } catch (_) {}
     }
 
-    return [];
+    if (!ehNumerico) {
+      resultados.addAll(
+        await _buscarProdutosPorSubcategoriaCadastrada(termoOriginal),
+      );
+    }
+
+    return aplicarFiltroEstoqueApp(removerProdutosDuplicados(resultados));
+  }
+
+  static Future<List<Produto>> _buscarProdutosPorSubcategoriaCadastrada(
+    String busca,
+  ) async {
+    try {
+      final termoSeguro = busca.trim().replaceAll("'", "''");
+      if (termoSeguro.isEmpty) return [];
+      final resposta = await _supabaseLoja
+          .from('produtos_app')
+          .select()
+          .eq('mercado_id', sessao.SessaoMercadoCliente.mercadoIdObrigatorio)
+          .eq('ativo', true)
+          .eq('vende_no_app', true)
+          .ilike('subcategoria', '%$termoSeguro%')
+          .limit(60);
+      final produtos = _produtosBancoParaModelos(List<dynamic>.from(resposta));
+      return await ProdutoConfiguracaoAppService.aplicarConfiguracoes(produtos);
+    } catch (_) {
+      return [];
+    }
   }
 
   static Future<Produto?> buscarProdutoExatoParaOferta({
@@ -1410,6 +1342,15 @@ class ApiService {
       return [];
     }
 
+    if (ClassificacaoNcmService.usaCatalogoClassificado && !_usarBancoLoja) {
+      return _listarProdutosApiPaginados(
+        path: '/produtos/categoria-ncm/${Uri.encodeComponent(categoria)}',
+        pagina: pagina,
+        limite: limite,
+        busca: busca,
+      );
+    }
+
     if (ClassificacaoNcmService.usaCatalogoClassificado) {
       return _filtrarCatalogoClassificado(
         categoria: categoria,
@@ -1448,6 +1389,15 @@ class ApiService {
     int limite = 20,
     String busca = '',
   }) async {
+    if (ClassificacaoNcmService.usaCatalogoClassificado && !_usarBancoLoja) {
+      return _listarProdutosApiPaginados(
+        path: '/produtos/subcategoria-ncm/${Uri.encodeComponent(subcategoria)}',
+        pagina: pagina,
+        limite: limite,
+        busca: busca,
+      );
+    }
+
     if (ClassificacaoNcmService.usaCatalogoClassificado) {
       return _filtrarCatalogoClassificado(
         subcategoria: subcategoria,

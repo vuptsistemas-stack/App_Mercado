@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,16 +13,32 @@ class MaisPage extends StatelessWidget {
   final VoidCallback? onVoltarInicio;
   final bool modoVisitante;
   final VoidCallback? onEntrar;
+  final VoidCallback? onAbrirListas;
 
   const MaisPage({
     super.key,
     this.onVoltarInicio,
     this.modoVisitante = false,
     this.onEntrar,
+    this.onAbrirListas,
   });
 
-  static const String versaoApp = '1.0.0';
+  static const String versaoApp = 'Versão indisponível';
   static const String desenvolvedorPadrao = 'Mercado Digital Tecnologia';
+  static String _versaoInstalada = versaoApp;
+  static final Future<String> _carregamentoVersao = _buscarVersaoInstalada();
+
+  static Future<String> _buscarVersaoInstalada() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final versao = info.version.trim();
+      final build = info.buildNumber.trim();
+      if (versao.isEmpty) return versaoApp;
+      return build.isEmpty ? versao : '$versao+$build';
+    } catch (_) {
+      return versaoApp;
+    }
+  }
 
   Map<String, dynamic> get dadosLoja {
     return sessao.SessaoMercadoCliente.dadosOriginais;
@@ -263,12 +280,7 @@ class MaisPage extends StatelessWidget {
   }
 
   String versao() {
-    return primeiroTexto([
-      lojaConfiguracoes['app_versao'],
-      lojaConfiguracoes['versao_app'],
-      dadosLoja['app_versao'],
-      dadosLoja['versao_app'],
-    ], fallback: versaoApp);
+    return _versaoInstalada;
   }
 
   String whatsappLojaNumeros() {
@@ -634,19 +646,13 @@ class MaisPage extends StatelessWidget {
             descricao: 'Entrega',
             onTap: () => abrirConta(context),
           ),
-        ],
-        itemMenu(
-          icone: Icons.support_agent_outlined,
-          titulo: 'Atendimento',
-          descricao: telefoneFormatado(),
-          detalhe: 'WhatsApp',
-          onTap: () => abrirDetalhe(
-            context,
-            titulo: 'Atendimento',
-            icone: Icons.support_agent_outlined,
-            secoes: secoesAtendimento(),
+          itemMenu(
+            icone: Icons.playlist_add_check_outlined,
+            titulo: 'Listas de compras',
+            descricao: 'Listas salvas',
+            onTap: () => onAbrirListas?.call(),
           ),
-        ),
+        ],
         itemMenu(
           icone: Icons.chat_outlined,
           titulo: 'Chamar no WhatsApp',
@@ -945,144 +951,161 @@ class MaisPage extends StatelessWidget {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-        children: [
-          cabecalho(),
-          const SizedBox(height: 12),
-          gradeMenu(context),
-          grupo(
-            titulo: 'Cliente',
+      body: FutureBuilder<String>(
+        future: _carregamentoVersao,
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            _versaoInstalada = snapshot.data!;
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
             children: [
-              itemMenu(
-                icone: Icons.person_outline,
-                titulo: 'Minha conta',
-                descricao: 'Dados pessoais, telefone e acesso.',
-                onTap: () => abrirConta(context),
+              cabecalho(),
+              const SizedBox(height: 12),
+              gradeMenu(context),
+              grupo(
+                titulo: 'Cliente',
+                children: [
+                  itemMenu(
+                    icone: Icons.person_outline,
+                    titulo: 'Minha conta',
+                    descricao: 'Dados pessoais, telefone e acesso.',
+                    onTap: () => abrirConta(context),
+                  ),
+                  itemMenu(
+                    icone: Icons.location_on_outlined,
+                    titulo: 'Meus endereços',
+                    descricao: 'Endereço principal e referência para entrega.',
+                    onTap: () => abrirConta(context),
+                  ),
+                  if (!modoVisitante)
+                    itemMenu(
+                      icone: Icons.playlist_add_check_outlined,
+                      titulo: 'Listas de compras',
+                      descricao: 'Listas salvas neste celular.',
+                      onTap: () => onAbrirListas?.call(),
+                    ),
+                ],
               ),
-              itemMenu(
-                icone: Icons.location_on_outlined,
-                titulo: 'Meus endereços',
-                descricao: 'Endereço principal e referência para entrega.',
-                onTap: () => abrirConta(context),
+              grupo(
+                titulo: 'Loja e atendimento',
+                children: [
+                  itemMenu(
+                    icone: Icons.support_agent_outlined,
+                    titulo: 'Atendimento',
+                    descricao: telefoneFormatado(),
+                    detalhe: 'WhatsApp',
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Atendimento',
+                      icone: Icons.support_agent_outlined,
+                      secoes: secoesAtendimento(),
+                    ),
+                  ),
+                  itemMenu(
+                    icone: Icons.chat_outlined,
+                    titulo: 'Chamar no WhatsApp',
+                    descricao:
+                        'Fale direto com a loja sobre pedidos e dúvidas.',
+                    cor: Colors.green,
+                    onTap: () => abrirWhatsApp(context),
+                  ),
+                  itemMenu(
+                    icone: Icons.storefront_outlined,
+                    titulo: 'Sobre a loja',
+                    descricao: enderecoLoja().replaceAll('\n', ' - '),
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Sobre a loja',
+                      icone: Icons.storefront_outlined,
+                      secoes: secoesSobreLoja(),
+                    ),
+                  ),
+                ],
+              ),
+              grupo(
+                titulo: 'Pedidos',
+                children: [
+                  itemMenu(
+                    icone: Icons.payments_outlined,
+                    titulo: 'Pagamentos',
+                    descricao: meiosPagamentoLoja().join(', '),
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Pagamentos',
+                      icone: Icons.payments_outlined,
+                      secoes: secoesPagamento(),
+                    ),
+                  ),
+                  itemMenu(
+                    icone: Icons.local_shipping_outlined,
+                    titulo: 'Entrega e retirada',
+                    descricao: 'Regras de entrega, retirada e substituições.',
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Entrega e retirada',
+                      icone: Icons.local_shipping_outlined,
+                      secoes: secoesEntregaRetirada(),
+                    ),
+                  ),
+                ],
+              ),
+              grupo(
+                titulo: 'Legal',
+                children: [
+                  itemMenu(
+                    icone: Icons.description_outlined,
+                    titulo: 'Termos de uso',
+                    descricao:
+                        'Regras de uso, pedidos, preços e responsabilidades.',
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Termos de uso',
+                      icone: Icons.description_outlined,
+                      secoes: secoesTermosUso(),
+                    ),
+                  ),
+                  itemMenu(
+                    icone: Icons.privacy_tip_outlined,
+                    titulo: 'Política de privacidade',
+                    descricao: 'Como os dados são usados para operar pedidos.',
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Privacidade',
+                      icone: Icons.privacy_tip_outlined,
+                      secoes: secoesPrivacidade(),
+                    ),
+                  ),
+                ],
+              ),
+              grupo(
+                titulo: 'Aplicativo',
+                children: [
+                  itemMenu(
+                    icone: Icons.info_outline,
+                    titulo: 'Sobre o app',
+                    descricao: 'Versão, desenvolvedor e observações.',
+                    detalhe: versao(),
+                    onTap: () => abrirDetalhe(
+                      context,
+                      titulo: 'Sobre o app',
+                      icone: Icons.info_outline,
+                      secoes: secoesSobreApp(),
+                    ),
+                  ),
+                  itemMenu(
+                    icone: Icons.logout,
+                    titulo: 'Sair da conta',
+                    descricao: 'Encerrar sessão neste aparelho.',
+                    cor: const Color(0xFF8A4A4A),
+                    onTap: () => sair(context),
+                  ),
+                ],
               ),
             ],
-          ),
-          grupo(
-            titulo: 'Loja e atendimento',
-            children: [
-              itemMenu(
-                icone: Icons.support_agent_outlined,
-                titulo: 'Atendimento',
-                descricao: telefoneFormatado(),
-                detalhe: 'WhatsApp',
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Atendimento',
-                  icone: Icons.support_agent_outlined,
-                  secoes: secoesAtendimento(),
-                ),
-              ),
-              itemMenu(
-                icone: Icons.chat_outlined,
-                titulo: 'Chamar no WhatsApp',
-                descricao: 'Fale direto com a loja sobre pedidos e dúvidas.',
-                cor: Colors.green,
-                onTap: () => abrirWhatsApp(context),
-              ),
-              itemMenu(
-                icone: Icons.storefront_outlined,
-                titulo: 'Sobre a loja',
-                descricao: enderecoLoja().replaceAll('\n', ' - '),
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Sobre a loja',
-                  icone: Icons.storefront_outlined,
-                  secoes: secoesSobreLoja(),
-                ),
-              ),
-            ],
-          ),
-          grupo(
-            titulo: 'Pedidos',
-            children: [
-              itemMenu(
-                icone: Icons.payments_outlined,
-                titulo: 'Pagamentos',
-                descricao: meiosPagamentoLoja().join(', '),
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Pagamentos',
-                  icone: Icons.payments_outlined,
-                  secoes: secoesPagamento(),
-                ),
-              ),
-              itemMenu(
-                icone: Icons.local_shipping_outlined,
-                titulo: 'Entrega e retirada',
-                descricao: 'Regras de entrega, retirada e substituições.',
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Entrega e retirada',
-                  icone: Icons.local_shipping_outlined,
-                  secoes: secoesEntregaRetirada(),
-                ),
-              ),
-            ],
-          ),
-          grupo(
-            titulo: 'Legal',
-            children: [
-              itemMenu(
-                icone: Icons.description_outlined,
-                titulo: 'Termos de uso',
-                descricao:
-                    'Regras de uso, pedidos, preços e responsabilidades.',
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Termos de uso',
-                  icone: Icons.description_outlined,
-                  secoes: secoesTermosUso(),
-                ),
-              ),
-              itemMenu(
-                icone: Icons.privacy_tip_outlined,
-                titulo: 'Política de privacidade',
-                descricao: 'Como os dados são usados para operar pedidos.',
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Privacidade',
-                  icone: Icons.privacy_tip_outlined,
-                  secoes: secoesPrivacidade(),
-                ),
-              ),
-            ],
-          ),
-          grupo(
-            titulo: 'Aplicativo',
-            children: [
-              itemMenu(
-                icone: Icons.info_outline,
-                titulo: 'Sobre o app',
-                descricao: 'Versão, desenvolvedor e observações.',
-                detalhe: versao(),
-                onTap: () => abrirDetalhe(
-                  context,
-                  titulo: 'Sobre o app',
-                  icone: Icons.info_outline,
-                  secoes: secoesSobreApp(),
-                ),
-              ),
-              itemMenu(
-                icone: Icons.logout,
-                titulo: 'Sair da conta',
-                descricao: 'Encerrar sessão neste aparelho.',
-                cor: const Color(0xFF8A4A4A),
-                onTap: () => sair(context),
-              ),
-            ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }

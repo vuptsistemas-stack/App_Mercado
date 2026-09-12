@@ -6,9 +6,9 @@ import 'package:provider/provider.dart';
 import '../controllers/carrinho_controller.dart';
 import '../models/produto.dart';
 import '../services/api_service.dart';
-import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
 import '../services/imagem_service.dart';
+import '../services/favoritos_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../utils/mensagem_erro.dart';
 import '../widgets/imagem_produto_network.dart';
@@ -632,8 +632,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
             imagemUrl: imagemUrl,
             ean: produto.ean,
             nomeProduto: produto.nome,
-            imagemUrlCadastroProdutoApp:
-                produto.produtoAppId.trim().isNotEmpty
+            imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
                 ? produto.imagemUrl
                 : '',
             fit: BoxFit.contain,
@@ -644,11 +643,7 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            fallback: Icon(
-              Icons.shopping_basket,
-              size: 58,
-              color: corPrimaria,
-            ),
+            fallback: Icon(Icons.shopping_basket, size: 58, color: corPrimaria),
           ),
         );
       },
@@ -1332,16 +1327,23 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
                   topRight: Radius.circular(14),
                 ),
               ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(14),
-                    topRight: Radius.circular(14),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(14),
+                          topRight: Radius.circular(14),
+                        ),
+                        onTap: () => mostrarZoomProduto(produto),
+                        child: imagemProduto(produto),
+                      ),
+                    ),
                   ),
-                  onTap: () => mostrarZoomProduto(produto),
-                  child: imagemProduto(produto),
-                ),
+                  Positioned(top: 2, right: 2, child: botaoFavorito(produto)),
+                ],
               ),
             ),
           ),
@@ -1411,6 +1413,37 @@ class _ProdutosCategoriaPageState extends State<ProdutosCategoriaPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget botaoFavorito(Produto produto) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: FavoritosService.instance.chaves,
+      builder: (context, _, __) {
+        final favorito = FavoritosService.instance.contem(produto);
+        return IconButton(
+          tooltip: favorito
+              ? 'Remover dos favoritos'
+              : 'Adicionar aos favoritos',
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(backgroundColor: Colors.white),
+          onPressed: () async {
+            try {
+              await FavoritosService.instance.alternar(produto);
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Entre para usar favoritos.')),
+                );
+              }
+            }
+          },
+          icon: Icon(
+            favorito ? Icons.favorite : Icons.favorite_border,
+            color: favorito ? Colors.red : AppTemaService.primaria,
+          ),
+        );
+      },
     );
   }
 

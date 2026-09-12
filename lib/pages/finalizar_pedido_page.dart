@@ -1630,6 +1630,7 @@ class _FinalizarPedidoPageState extends State<FinalizarPedidoPage> {
             codigo: cupomAplicado!['codigo']?.toString() ?? '',
             itens: carrinho.itens,
             confirmarUso: true,
+            pedidoId: pedidoId.toString(),
           );
         } catch (e) {
           debugPrint('Não foi possível registrar o uso do cupom: $e');

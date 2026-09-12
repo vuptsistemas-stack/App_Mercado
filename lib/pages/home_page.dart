@@ -12,6 +12,7 @@ import '../services/imagem_service.dart';
 import '../services/categoria_imagem_service.dart';
 import '../services/loja_funcionamento_service.dart';
 import '../services/ofertas_service.dart';
+import '../services/favoritos_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../utils/mensagem_erro.dart';
 import '../widgets/imagem_produto_network.dart';
@@ -57,6 +58,7 @@ class _HomePageState extends State<HomePage> {
   bool temMais = true;
 
   int paginaProdutos = 1;
+  int _versaoCarregamentoProdutos = 0;
   final int limiteProdutos = 30;
 
   String mensagem = 'Carregando produtos...';
@@ -144,6 +146,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> carregarProdutosIniciais() async {
+    final versaoCarregamento = ++_versaoCarregamentoProdutos;
     setState(() {
       categoriaFiltroSelecionada = null;
       paginaProdutos = 1;
@@ -154,34 +157,30 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      final resultados = await Future.wait([
-        ApiService.listarProdutosIniciais(
-          pagina: paginaProdutos,
-          limite: limiteProdutos,
-        ),
-        ApiService.listarProdutosMaisVendidosNoApp(limite: 50),
-      ]);
-
-      final produtosCatalogoRetorno = resultados[0];
+      final produtosCatalogoRetorno = await ApiService.listarProdutosIniciais(
+        pagina: paginaProdutos,
+        limite: limiteProdutos,
+      );
       final produtosCatalogo = produtosCatalogoRetorno
           .take(limiteProdutos)
           .toList();
-      final produtosMaisVendidos = resultados[1];
-      final listaProdutos = ApiService.removerProdutosDuplicados(
-        combinarProdutosSemDuplicar(produtosMaisVendidos, produtosCatalogo),
-      );
 
-      if (!mounted) return;
+      if (!mounted || versaoCarregamento != _versaoCarregamentoProdutos) {
+        return;
+      }
 
       setState(() {
-        produtos = listaProdutos;
+        produtos = produtosCatalogo;
         temMais = produtosCatalogoRetorno.length > limiteProdutos;
-        mensagem = listaProdutos.isEmpty ? 'Nenhum produto encontrado' : '';
+        mensagem = produtosCatalogo.isEmpty ? 'Nenhum produto encontrado' : '';
+        carregando = false;
       });
 
-      debugPrint(
-        'APP_MERCADO HOME: carregou ${listaProdutos.length} produto(s) '
-        'com ${produtosMaisVendidos.length} mais vendido(s) no topo',
+      unawaited(
+        priorizarMaisVendidos(
+          produtosCatalogo: produtosCatalogo,
+          versaoCarregamento: versaoCarregamento,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -189,18 +188,42 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         produtos = [];
         temMais = false;
+        carregando = false;
         mensagem = mensagemErroAmigavel(
           e,
           mensagemPadrao:
               'Não foi possível carregar os produtos. Tente novamente.',
         );
       });
-    } finally {
-      if (!mounted) return;
+    }
+  }
 
+  Future<void> priorizarMaisVendidos({
+    required List<Produto> produtosCatalogo,
+    required int versaoCarregamento,
+  }) async {
+    try {
+      final produtosMaisVendidos =
+          await ApiService.listarProdutosMaisVendidosNoApp(limite: 20);
+      if (!mounted ||
+          versaoCarregamento != _versaoCarregamentoProdutos ||
+          categoriaFiltroSelecionada != null ||
+          paginaProdutos != 1) {
+        return;
+      }
+
+      final listaProdutos = ApiService.removerProdutosDuplicados(
+        combinarProdutosSemDuplicar(produtosMaisVendidos, produtosCatalogo),
+      );
       setState(() {
-        carregando = false;
+        produtos = listaProdutos;
       });
+
+      debugPrint(
+        'APP_MERCADO HOME: priorizou ${produtosMaisVendidos.length} mais vendido(s) no topo.',
+      );
+    } catch (e) {
+      debugPrint('Não foi possível priorizar os mais vendidos: $e');
     }
   }
 
@@ -542,6 +565,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> buscarProdutos() async {
+    _versaoCarregamentoProdutos++;
     final busca = buscaController.text.trim();
 
     setState(() {
@@ -715,6 +739,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> filtrarPorCategoria(String categoria) async {
+    _versaoCarregamentoProdutos++;
     setState(() {
       categoriaFiltroSelecionada = categoria;
       buscaController.clear();
@@ -799,8 +824,7 @@ class _HomePageState extends State<HomePage> {
             imagemUrl: imagemUrl,
             ean: produto.ean,
             nomeProduto: produto.nome,
-            imagemUrlCadastroProdutoApp:
-                produto.produtoAppId.trim().isNotEmpty
+            imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
                 ? produto.imagemUrl
                 : '',
             fit: BoxFit.contain,
@@ -1677,16 +1701,23 @@ class _HomePageState extends State<HomePage> {
                   topRight: Radius.circular(14),
                 ),
               ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(14),
-                    topRight: Radius.circular(14),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(14),
+                          topRight: Radius.circular(14),
+                        ),
+                        onTap: () => mostrarZoomProduto(produto),
+                        child: imagemProduto(produto),
+                      ),
+                    ),
                   ),
-                  onTap: () => mostrarZoomProduto(produto),
-                  child: imagemProduto(produto),
-                ),
+                  Positioned(top: 2, right: 2, child: botaoFavorito(produto)),
+                ],
               ),
             ),
           ),
@@ -1759,6 +1790,37 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget botaoFavorito(Produto produto) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: FavoritosService.instance.chaves,
+      builder: (context, _, __) {
+        final favorito = FavoritosService.instance.contem(produto);
+        return IconButton(
+          tooltip: favorito
+              ? 'Remover dos favoritos'
+              : 'Adicionar aos favoritos',
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(backgroundColor: Colors.white),
+          onPressed: () async {
+            try {
+              await FavoritosService.instance.alternar(produto);
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Entre para usar favoritos.')),
+                );
+              }
+            }
+          },
+          icon: Icon(
+            favorito ? Icons.favorite : Icons.favorite_border,
+            color: favorito ? Colors.red : AppTemaService.primaria,
+          ),
+        );
+      },
+    );
+  }
+
   Widget ofertaCard(OfertaProdutoHome oferta) {
     return SizedBox.expand(
       child: Stack(
@@ -1821,8 +1883,9 @@ class _HomePageState extends State<HomePage> {
           imagemUrl: imagemUrl,
           ean: produto.ean,
           nomeProduto: produto.nome,
-          imagemUrlCadastroProdutoApp:
-              produto.produtoAppId.trim().isNotEmpty ? produto.imagemUrl : '',
+          imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
+              ? produto.imagemUrl
+              : '',
           fit: BoxFit.contain,
           placeholder: Center(
             child: CircularProgressIndicator(
@@ -3080,8 +3143,7 @@ class _PesquisaProdutosPageState extends State<PesquisaProdutosPage> {
             imagemUrl: imagemUrl,
             ean: produto.ean,
             nomeProduto: produto.nome,
-            imagemUrlCadastroProdutoApp:
-                produto.produtoAppId.trim().isNotEmpty
+            imagemUrlCadastroProdutoApp: produto.produtoAppId.trim().isNotEmpty
                 ? produto.imagemUrl
                 : '',
             fit: BoxFit.contain,

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../controllers/carrinho_controller.dart';
+import '../services/api_service.dart';
 import '../services/sessao_mercado_cliente.dart' as sessao;
 import '../services/app_tema_service.dart';
 import '../services/historico_notificacoes_pedido_service.dart';
@@ -58,8 +61,14 @@ bool statusPedidoPermiteCancelamentoCliente(dynamic valor) {
 class PedidosPage extends StatefulWidget {
   final VoidCallback? onVoltarInicio;
   final ValueChanged<bool>? onDetalheAlterado;
+  final VoidCallback? onAbrirCarrinho;
 
-  const PedidosPage({super.key, this.onVoltarInicio, this.onDetalheAlterado});
+  const PedidosPage({
+    super.key,
+    this.onVoltarInicio,
+    this.onDetalheAlterado,
+    this.onAbrirCarrinho,
+  });
 
   @override
   State<PedidosPage> createState() => PedidosPageState();
@@ -1140,6 +1149,7 @@ class PedidosPageState extends State<PedidosPage> {
       return PedidoDetalhePage(
         pedido: detalhe,
         onVoltar: () => fecharDetalhe(),
+        onAbrirCarrinho: widget.onAbrirCarrinho,
       );
     }
 
@@ -1237,8 +1247,14 @@ class PedidosPageState extends State<PedidosPage> {
 class PedidoDetalhePage extends StatefulWidget {
   final Map<String, dynamic> pedido;
   final VoidCallback? onVoltar;
+  final VoidCallback? onAbrirCarrinho;
 
-  const PedidoDetalhePage({super.key, required this.pedido, this.onVoltar});
+  const PedidoDetalhePage({
+    super.key,
+    required this.pedido,
+    this.onVoltar,
+    this.onAbrirCarrinho,
+  });
 
   @override
   State<PedidoDetalhePage> createState() => _PedidoDetalhePageState();
@@ -1247,6 +1263,7 @@ class PedidoDetalhePage extends StatefulWidget {
 class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
   bool carregando = true;
   bool cancelandoPedido = false;
+  bool recomprandoPedido = false;
   List<Map<String, dynamic>> itens = [];
   final Map<String, Future<String?>> imagensItens = {};
 
@@ -1410,6 +1427,89 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
 
   bool pedidoCancelado() {
     return statusPedidoAtual() == 'cancelado';
+  }
+
+  bool pedidoFinalizado() {
+    return statusPedidoAtual() == 'entregue';
+  }
+
+  int quantidadeItem(Map<String, dynamic> item) {
+    final quantidade = numero(item['quantidade']);
+    return quantidade <= 0 ? 0 : quantidade.round();
+  }
+
+  Future<void> comprarNovamente() async {
+    if (recomprandoPedido || !pedidoFinalizado()) return;
+
+    if (itens.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Este pedido não possui itens para adicionar.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => recomprandoPedido = true);
+
+    var itensAdicionados = 0;
+    var itensIndisponiveis = 0;
+    final carrinho = context.read<CarrinhoController>();
+
+    try {
+      for (final item in itens) {
+        final produto = await ApiService.buscarProdutoExatoParaOferta(
+          ean: item['ean']?.toString() ?? '',
+          produtoId: item['produto_id']?.toString() ?? '',
+          nome: item['nome_produto']?.toString() ?? '',
+        );
+        final quantidade = quantidadeItem(item);
+
+        if (produto == null || quantidade <= 0) {
+          itensIndisponiveis++;
+          continue;
+        }
+
+        var adicionouEsteItem = false;
+        for (var indice = 0; indice < quantidade; indice++) {
+          if (!carrinho.adicionarQuantidade(produto, 1)) break;
+          adicionouEsteItem = true;
+        }
+
+        if (adicionouEsteItem) {
+          itensAdicionados++;
+        } else {
+          itensIndisponiveis++;
+        }
+      }
+
+      if (itensAdicionados > 0) {
+        await carrinho.atualizarProdutosCarrinho();
+      }
+    } finally {
+      if (mounted) setState(() => recomprandoPedido = false);
+    }
+
+    if (!mounted) return;
+
+    if (itensAdicionados == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nenhum produto deste pedido está disponível no momento.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final mensagem = itensIndisponiveis > 0
+        ? '$itensAdicionados item(ns) adicionado(s). Alguns não estão disponíveis.'
+        : 'Itens adicionados ao carrinho com os preços atuais.';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(mensagem)));
+    widget.onAbrirCarrinho?.call();
   }
 
   Future<void> confirmarCancelamentoPedido() async {
@@ -2114,6 +2214,41 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
     );
   }
 
+  Widget botaoComprarNovamente() {
+    if (!pedidoFinalizado()) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 14),
+      child: ElevatedButton.icon(
+        onPressed: recomprandoPedido ? null : comprarNovamente,
+        icon: recomprandoPedido
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.shopping_cart_outlined),
+        label: Text(
+          recomprandoPedido
+              ? 'Adicionando ao carrinho...'
+              : 'Comprar novamente',
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTemaService.primaria,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget itemPedido(Map<String, dynamic> item) {
     final pesoVariavel = itemPesoVariavel(item);
     final reajustado = itemReajustado(item);
@@ -2466,6 +2601,7 @@ class _PedidoDetalhePageState extends State<PedidoDetalhePage> {
                       cardCodigoEntregaCliente(),
                       cardAvisoReajustePedido(),
                       cardPedidoCanceladoCliente(),
+                      botaoComprarNovamente(),
                       botaoCancelarPedido(),
                     ],
                   ),

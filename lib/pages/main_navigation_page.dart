@@ -20,6 +20,8 @@ import 'produtos_categoria_page.dart';
 import 'finalizar_pedido_page.dart';
 import 'mais_page.dart';
 import 'jornal_ofertas_page.dart';
+import 'favoritos_page.dart';
+import '../services/favoritos_service.dart';
 
 class MainNavigationPage extends StatefulWidget {
   final int indexInicial;
@@ -58,6 +60,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     indexSelecionado = widget.indexInicial;
     if (!widget.modoVisitante) {
       MonitorStatusPedidosClienteService.instance.iniciar();
+      unawaited(FavoritosService.instance.carregar().catchError((_) {}));
     }
     carregarConfiguracaoBotaoFinalizarCompra();
     destinoNotificacaoSubscription = NotificacaoStatusPedidoService
@@ -232,6 +235,19 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     });
   }
 
+  void abrirListas() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => ListasComprasPage(
+          onAbrirCarrinho: () {
+            Navigator.of(routeContext).pop();
+            abrirCarrinhoParaRevisao();
+          },
+        ),
+      ),
+    );
+  }
+
   void abrirConta() {
     if (widget.modoVisitante) {
       unawaited(solicitarLogin('acessar seus dados pessoais'));
@@ -249,9 +265,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   void trocarAba(int index) {
     if (widget.modoVisitante && (index == 3 || index == 4)) {
-      final recurso = index == 3
-          ? 'acompanhar seus pedidos'
-          : 'usar listas de compras';
+      final recurso = index == 3 ? 'acompanhar seus pedidos' : 'usar favoritos';
       unawaited(solicitarLogin(recurso));
       return;
     }
@@ -386,6 +400,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       PedidosPage(
         key: pedidosPageKey,
         onVoltarInicio: voltarParaInicio,
+        onAbrirCarrinho: abrirCarrinhoParaRevisao,
         onDetalheAlterado: (aberto) {
           if (!mounted || exibindoDetalhePedido == aberto) {
             return;
@@ -396,7 +411,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           });
         },
       ),
-      ListasComprasPage(
+      FavoritosPage(
         onAbrirCarrinho: () => trocarAba(2),
         onVoltarInicio: voltarParaInicio,
       ),
@@ -404,6 +419,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         onVoltarInicio: voltarParaInicio,
         modoVisitante: widget.modoVisitante,
         onEntrar: () => solicitarLogin('acessar sua conta'),
+        onAbrirListas: abrirListas,
       ),
     ];
 
@@ -500,9 +516,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                             label: 'Pedidos',
                           ),
                           const BottomNavigationBarItem(
-                            icon: Icon(Icons.playlist_add_outlined),
-                            activeIcon: Icon(Icons.playlist_add_check_rounded),
-                            label: 'Listas',
+                            icon: Icon(Icons.favorite_border),
+                            activeIcon: Icon(Icons.favorite),
+                            label: 'Favoritos',
                           ),
                           const BottomNavigationBarItem(
                             icon: Icon(Icons.more_horiz),
