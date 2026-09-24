@@ -40,6 +40,8 @@ class LojaConfiguracoesCliente {
   final bool bloquearEntregaForaRaio;
   final String mensagemFechado;
   final String mensagemForaAreaEntrega;
+  final List<String> categoriasOcultasNoApp;
+  final Set<String> categoriasOcultasNormalizadas;
   final Map<String, dynamic> dados;
 
   const LojaConfiguracoesCliente({
@@ -61,6 +63,8 @@ class LojaConfiguracoesCliente {
     required this.bloquearEntregaForaRaio,
     required this.mensagemFechado,
     required this.mensagemForaAreaEntrega,
+    required this.categoriasOcultasNoApp,
+    required this.categoriasOcultasNormalizadas,
     required this.dados,
   });
 
@@ -85,6 +89,8 @@ class LojaConfiguracoesCliente {
       mensagemFechado:
           'A loja está fechada no momento. Tente novamente dentro do horário de atendimento.',
       mensagemForaAreaEntrega: 'Endereço fora da área de entrega.',
+      categoriasOcultasNoApp: [],
+      categoriasOcultasNormalizadas: {},
       dados: {},
     );
   }
@@ -103,6 +109,10 @@ class LojaConfiguracoesCliente {
         ).isNotEmpty
         ? LojaFuncionamentoService._texto(dados['mensagem_fora_area_entrega'])
         : padrao.mensagemForaAreaEntrega;
+
+    final categoriasOcultas = LojaFuncionamentoService._listaTextos(
+      dados['categorias_ocultas_app'],
+    );
 
     return LojaConfiguracoesCliente(
       exibirEstoque: LojaFuncionamentoService._booleano(
@@ -155,6 +165,11 @@ class LojaConfiguracoesCliente {
       ),
       mensagemFechado: mensagemFechado,
       mensagemForaAreaEntrega: mensagemForaArea,
+      categoriasOcultasNoApp: categoriasOcultas,
+      categoriasOcultasNormalizadas: categoriasOcultas
+          .map(LojaFuncionamentoService.normalizarCategoria)
+          .where((item) => item.isNotEmpty)
+          .toSet(),
       dados: dados,
     );
   }
@@ -167,6 +182,7 @@ class LojaFuncionamentoService {
   static LojaConfiguracoesCliente? _cacheConfiguracoes;
   static DateTime? _cacheConfiguracoesEm;
   static List<String> _categoriasBloqueadasCliente = [];
+  static Set<String> _categoriasBloqueadasClienteNormalizadas = const {};
   static DateTime? _categoriasBloqueadasClienteEm;
   static String? _categoriasBloqueadasClienteUserId;
 
@@ -232,6 +248,10 @@ class LojaFuncionamentoService {
 
   static void configurarCategoriasBloqueadasCliente(dynamic valor) {
     _categoriasBloqueadasCliente = _listaTextos(valor);
+    _categoriasBloqueadasClienteNormalizadas = _categoriasBloqueadasCliente
+        .map(normalizarCategoria)
+        .where((item) => item.isNotEmpty)
+        .toSet();
     _categoriasBloqueadasClienteUserId =
         Supabase.instance.client.auth.currentUser?.id;
     _categoriasBloqueadasClienteEm = DateTime.now();
@@ -239,6 +259,7 @@ class LojaFuncionamentoService {
 
   static void limparCategoriasBloqueadasCliente() {
     _categoriasBloqueadasCliente = [];
+    _categoriasBloqueadasClienteNormalizadas = const {};
     _categoriasBloqueadasClienteUserId = null;
     _categoriasBloqueadasClienteEm = null;
   }
@@ -248,9 +269,7 @@ class LojaFuncionamentoService {
 
     if (chave.isEmpty) return false;
 
-    return _categoriasBloqueadasCliente.any(
-      (item) => normalizarCategoria(item) == chave,
-    );
+    return _categoriasBloqueadasClienteNormalizadas.contains(chave);
   }
 
   static Future<void> _atualizarCategoriasBloqueadasCliente({

@@ -156,24 +156,8 @@ class ApiService {
     List<Produto> produtos,
     LojaConfiguracoesCliente configuracoes,
   ) {
-    final categoriasCliente =
-        LojaFuncionamentoService.categoriasBloqueadasCliente;
-
-    if (categoriasCliente.isEmpty) {
-      return produtos;
-    }
-
-    final bloqueadas = categoriasCliente
-        .map(LojaFuncionamentoService.normalizarCategoria)
-        .where((categoria) => categoria.isNotEmpty)
-        .toSet();
-
     return produtos.where((produto) {
-      final categoria = LojaFuncionamentoService.normalizarCategoria(
-        produto.categoria,
-      );
-
-      return categoria.isEmpty || !bloqueadas.contains(categoria);
+      return !_categoriaBloqueada(produto.categoria, configuracoes);
     }).toList();
   }
 
@@ -187,7 +171,9 @@ class ApiService {
 
     if (categoriaNormalizada.isEmpty) return false;
 
-    return LojaFuncionamentoService.categoriaBloqueadaParaCliente(categoria);
+    return configuracoes.categoriasOcultasNormalizadas
+            .contains(categoriaNormalizada) ||
+        LojaFuncionamentoService.categoriaBloqueadaParaCliente(categoria);
   }
 
   static Future<List<Produto>> _buscarProdutosApiPagina({
@@ -236,7 +222,8 @@ class ApiService {
     final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
 
     if (configuracoes.exibirProdutosSemEstoque &&
-        LojaFuncionamentoService.categoriasBloqueadasCliente.isEmpty) {
+        LojaFuncionamentoService.categoriasBloqueadasCliente.isEmpty &&
+        configuracoes.categoriasOcultasNoApp.isEmpty) {
       final produtos = await _buscarProdutosApiPagina(
         path: path,
         pagina: paginaCorrigida,
@@ -939,7 +926,7 @@ class ApiService {
           final produtoExato = _produtoComMesmoEan(produtos, eanLimpo);
 
           if (produtoExato != null) {
-            return produtoExato;
+            return await _produtoVisivelNoApp(produtoExato);
           }
         } catch (_) {}
       }
@@ -962,7 +949,7 @@ class ApiService {
         for (final produto in produtos) {
           if (_normalizarEan(produto.produtoId.toString()) ==
               produtoIdNormalizado) {
-            return produto;
+            return await _produtoVisivelNoApp(produto);
           }
         }
       } catch (_) {}
@@ -983,7 +970,9 @@ class ApiService {
               await ProdutoConfiguracaoAppService.aplicarConfiguracoes(
                 _converterResposta(response.body),
               );
-          return _produtoComMesmoNome(produtos, nomeLimpo);
+          return await _produtoVisivelNoApp(
+            _produtoComMesmoNome(produtos, nomeLimpo),
+          );
         }
       } catch (_) {}
     }
@@ -1014,7 +1003,7 @@ class ApiService {
         );
 
         if (produtosPorEan.isNotEmpty) {
-          return produtosPorEan.first;
+          return await _produtoVisivelNoApp(produtosPorEan.first);
         }
 
         final porCodigoBarras = await _supabaseLoja
@@ -1031,7 +1020,7 @@ class ApiService {
         );
 
         if (produtosPorCodigoBarras.isNotEmpty) {
-          return produtosPorCodigoBarras.first;
+          return await _produtoVisivelNoApp(produtosPorCodigoBarras.first);
         }
 
         return null;
@@ -1054,7 +1043,7 @@ class ApiService {
         );
 
         if (produtosPorProdutoId.isNotEmpty) {
-          return produtosPorProdutoId.first;
+          return await _produtoVisivelNoApp(produtosPorProdutoId.first);
         }
 
         return null;
@@ -1077,12 +1066,19 @@ class ApiService {
         );
 
         if (produtosPorNome.isNotEmpty) {
-          return produtosPorNome.first;
+          return await _produtoVisivelNoApp(produtosPorNome.first);
         }
       }
     } catch (_) {}
 
     return null;
+  }
+
+  static Future<Produto?> _produtoVisivelNoApp(Produto? produto) async {
+    if (produto == null || !await deveExibirProdutoNoApp(produto)) {
+      return null;
+    }
+    return produto;
   }
 
   static Future<List<String>> listarCategorias() async {
@@ -1127,10 +1123,13 @@ class ApiService {
     }
     if (ClassificacaoNcmService.usaCatalogoClassificado) {
       final produtos = await _listarCatalogoClassificado();
+      final configuracoes = await LojaFuncionamentoService.buscarConfiguracoes();
       final categorias = <String, int>{};
       for (final produto in produtos) {
         final categoria = produto.categoria.trim();
-        if (categoria.isEmpty) continue;
+        if (categoria.isEmpty || _categoriaBloqueada(categoria, configuracoes)) {
+          continue;
+        }
         final atual = categorias[categoria];
         if (atual == null || produto.ordemCategoria < atual) {
           categorias[categoria] = produto.ordemCategoria;
